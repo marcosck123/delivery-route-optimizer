@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +11,15 @@ class Settings(BaseSettings):
 
     # SQLite para o MVP local, Postgres em produção
     database_url: str = "sqlite:///./delivery.db"
+
+    @field_validator("database_url")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        """`fly postgres attach` grava a URL como `postgres://`, esquema que o
+        SQLAlchemy 2.0 não reconhece. Normaliza para `postgresql://`."""
+        if value.startswith("postgres://"):
+            return "postgresql://" + value[len("postgres://") :]
+        return value
 
     secret_key: str = "chave-secreta-de-desenvolvimento-troque-em-producao"
     algorithm: str = "HS256"

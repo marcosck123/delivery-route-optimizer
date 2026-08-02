@@ -17,11 +17,12 @@ venv/
 *.db
 *.sqlite3
 
-# Ambiente
+# Ambiente — nenhum .env entra no repositório.
+# Exceções: os .example e o .env.production do front (só a URL pública da API).
 .env
-.env.local
-.env*.local
+.env.*
 !.env.example
+!apps/web/.env.production
 
 # Editores / SO
 .DS_Store

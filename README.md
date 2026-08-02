@@ -140,18 +140,20 @@ Documentação interativa em `/docs`.
 
 ## 📦 Deploy
 
-**Backend (Fly.io):**
+Runbook completo em **[DEPLOY.md](./DEPLOY.md)**. Resumo:
+
+**Backend (Fly.io)** — use `fly apps create`, não `fly launch` (ele sobrescreve o `fly.toml` do repo):
 
 ```bash
 cd services/api
-fly launch --name delivery-route-optimizer --no-deploy
-fly postgres create --name delivery-optimizer-db
+fly apps create delivery-route-optimizer-api
+fly postgres create --name delivery-optimizer-db --region gru
 fly postgres attach delivery-optimizer-db      # define DATABASE_URL
-fly secrets set SECRET_KEY=$(openssl rand -hex 32) CORS_ORIGINS=https://seu-app.vercel.app
+fly secrets set SECRET_KEY="$(openssl rand -hex 32)"
 fly deploy
 ```
 
-**Frontend (Vercel):** aponte o *Root Directory* para `apps/web` e defina `NEXT_PUBLIC_API_URL` com a URL do Fly.io.
+**Frontend (Vercel):** *Root Directory* = `apps/web`, com "Include source files outside of the Root Directory" ligado (o workspace pnpm fica na raiz), e `NEXT_PUBLIC_API_URL` apontando para a URL do Fly.io.
 
 Custo: ~$5/mês (Fly.io shared-cpu-1x 256MB + Postgres) + Vercel grátis.
 

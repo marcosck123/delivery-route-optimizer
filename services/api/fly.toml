@@ -1,4 +1,4 @@
-app = "delivery-route-optimizer"
+app = "delivery-route-optimizer-api"
 primary_region = "gru"  # São Paulo
 kill_signal = "SIGINT"
 kill_timeout = 5
