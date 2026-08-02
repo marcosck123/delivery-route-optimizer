@@ -9,6 +9,7 @@ import type { OcrBlock } from "@/lib/types";
 
 interface EditableBlock {
   raw_text: string;
+  order_id: string | null;
   street: string;
   number: string;
   neighborhood: string;
@@ -19,11 +20,12 @@ interface EditableBlock {
 function toEditable(block: OcrBlock): EditableBlock {
   return {
     raw_text: block.raw_text,
+    order_id: block.order_id,
     street: block.street ?? "",
     number: block.number ?? "",
     neighborhood: block.neighborhood ?? "",
-    complement: "",
-    cep: "",
+    complement: block.complement ?? "",
+    cep: block.cep ?? "",
   };
 }
 
@@ -115,6 +117,8 @@ export default function PhotoImport({
             neighborhood: block.neighborhood.trim(),
             cep: block.cep.trim() || null,
             complement: block.complement.trim() || null,
+            // o número do pedido lido da tela segue junto com a entrega
+            jet_order_id: block.order_id,
           },
           token,
         );
@@ -176,9 +180,16 @@ export default function PhotoImport({
               className="space-y-2 rounded border border-gray-200 p-3"
             >
               <div className="flex items-start justify-between gap-2">
-                <pre className="max-h-24 flex-1 overflow-y-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-600">
-                  {block.raw_text}
-                </pre>
+                <div className="min-w-0 flex-1">
+                  {block.order_id && (
+                    <p className="mb-1 text-xs font-medium text-gray-700">
+                      Pedido {block.order_id}
+                    </p>
+                  )}
+                  <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-600">
+                    {block.raw_text}
+                  </pre>
+                </div>
                 <button
                   onClick={() => removeBlock(index)}
                   aria-label={`Descartar endereço ${index + 1}`}

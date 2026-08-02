@@ -157,7 +157,7 @@ export const confirmPin = (
 
 export const addDelivery = (
   routeId: number,
-  delivery: AddressInput,
+  delivery: AddressInput & { jet_order_id?: string | null },
   token: string,
 ) =>
   request<Delivery>(`/api/routes/${routeId}/deliveries/`, {

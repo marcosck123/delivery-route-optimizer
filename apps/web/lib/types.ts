@@ -68,9 +68,13 @@ export interface RouteSummary {
 /** One delivery read from a photo, before the user reviews it. */
 export interface OcrBlock {
   raw_text: string;
+  /** Número do pedido lido da tela; vira jet_order_id na entrega. */
+  order_id: string | null;
   street: string | null;
   number: string | null;
   neighborhood: string | null;
+  complement: string | null;
+  cep: string | null;
 }
 
 export interface OcrUploadResponse {

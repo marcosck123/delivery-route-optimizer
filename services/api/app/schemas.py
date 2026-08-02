@@ -62,9 +62,12 @@ class OcrBlock(BaseModel):
     """One delivery read from a photo, before the user reviews it."""
 
     raw_text: str
+    order_id: Optional[str] = None  # vira jet_order_id quando ela adiciona
     street: Optional[str] = None
     number: Optional[str] = None
     neighborhood: Optional[str] = None
+    complement: Optional[str] = None
+    cep: Optional[str] = None
 
 
 class OcrUploadResponse(BaseModel):

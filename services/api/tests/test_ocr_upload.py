@@ -41,11 +41,31 @@ def test_ocr_upload_returns_blocks_for_review(client, auth_headers, fake_tessera
     assert response.status_code == 200
 
     body = response.json()
-    assert len(body["blocks"]) == 3
-    assert body["blocks"][0]["street"] == "RUA RESIDENCIAL FLORENÇA UM"
-    assert body["blocks"][0]["number"] == "8046"
-    assert "MARCELA SOUZA" in body["blocks"][0]["raw_text"]
-    assert "3 endereço(s) lido(s)" in body["message"]
+    # dois cards de verdade — o cabeçalho do app não entra na conta
+    assert len(body["blocks"]) == 2
+    assert "2 endereço(s) lido(s)" in body["message"]
+
+    first = body["blocks"][0]
+    assert first["order_id"] == "888030841672038"
+    assert first["street"] == "RUA RESIDENCIAL FLORENÇA-UM"
+    assert first["number"] == "8046"
+    assert first["neighborhood"] == "RESIDENCIAL FLORENCA"
+    assert "CASA" in first["complement"]
+    assert first["cep"] == "76985-662"
+    assert "MARCELA FLORINDA FUR" in first["raw_text"]
+
+
+def test_ocr_upload_does_not_return_ui_chrome(client, auth_headers, fake_tesseract):
+    """O bug que motivou a calibração: abas e botões viravam 'endereço'."""
+    route = create_route(client, auth_headers)
+    blocks = upload(client, auth_headers, route["id"]).json()["blocks"]
+
+    streets = [block["street"] for block in blocks]
+    for noise in ["Recibo", "Entrega", "Assinar", "Filtro", "Roteirização"]:
+        assert all(noise not in (street or "") for street in streets)
+
+    # e todo card volta com os campos preenchidos, não vazios
+    assert all(block["street"] and block["number"] for block in blocks)
 
 
 def test_ocr_upload_does_not_create_deliveries(client, auth_headers, fake_tesseract):
@@ -124,7 +144,9 @@ def test_reviewed_blocks_enter_the_normal_flow(client, auth_headers, fake_tesser
         "street": blocks[0]["street"],
         "number": blocks[0]["number"],
         "neighborhood": "Residencial Florença",
-        "complement": "CASA",
+        "complement": blocks[0]["complement"],
+        "cep": blocks[0]["cep"],
+        "jet_order_id": blocks[0]["order_id"],
     }
     created = client.post(
         f"/api/routes/{route['id']}/deliveries/",
@@ -133,5 +155,8 @@ def test_reviewed_blocks_enter_the_normal_flow(client, auth_headers, fake_tesser
     )
 
     assert created.status_code == 201
-    assert created.json()["geocode_status"] == "pending"
-    assert created.json()["address"].startswith("RUA RESIDENCIAL FLORENÇA UM, 8046")
+    body = created.json()
+    assert body["geocode_status"] == "pending"
+    assert body["address"].startswith("RUA RESIDENCIAL FLORENÇA-UM, 8046")
+    # o número do pedido lido da tela vira o jet_order_id da entrega
+    assert body["jet_order_id"] == "888030841672038"

@@ -1,8 +1,10 @@
-"""OCR tests.
+"""Preprocessing, watermark sieve and the OCR entry point.
 
 Tesseract itself is mocked: the binary is not installed in every environment,
-and what we need to prove is the sieve + parser logic over strings. The
-OpenCV preprocessing runs for real over a generated image.
+and what we need to prove is the sieve/parser logic over strings. The OpenCV
+preprocessing runs for real over a generated image.
+
+The parser tailored to the J&T screen lives in ``test_ocr_parser.py``.
 """
 
 import cv2
@@ -18,32 +20,29 @@ from app.utils.image_preprocessing import (
     remove_speckles,
     to_grayscale,
 )
-from app.utils.ocr import (
-    extract_text,
-    filter_watermark,
-    is_watermark,
-    parse_addresses,
-)
+from app.utils.ocr import extract_text, filter_watermark, is_watermark
 
-# Texto realista, como sai do Tesseract sobre um print da transportadora.
+# Trecho realista da tela da J&T, com a marca d'água lida como texto solto.
 SAMPLE_OCR_TEXT = """\
+Recibo de Transferência
+Entrega pendente   Assinado   Pacote problemático
 2026-08-02
-BR2508140021
-MARCELA SOUZA
-RUA RESIDENCIAL FLORENÇA UM, 8046, CASA
-Residencial Florença
-Vilhena RO
+888030841672038
+MARCELA FLORINDA FUR...
+RUA RESIDENCIAL FLORENÇA–UM
+RESIDENCIAL FLORENCA Vilhena
+RO RUA RESIDENCIAL FLORENÇA–
+UM, 8046, CASA 76985662
+2026-08-01 18:24:00
 82736451928374651928
-BR2508140022
-JOAO PEREIRA
-AV MAJOR AMARANTE, 1000
-Centro
-Vilhena RO
-2026-08-02
-BR2508140023
-ANA LIMA
-TRAVESSA DOS IPES 45
-Jardim Eldorado
+[navegação]  Telefone  Registro de anomalia  Assinar
+888030841672039
+VANDERLEI VIERA ROCHA
+RUA RESIDENCIAL FLORENÇA–TRÊS
+RESIDENCIAL FLORENCA Vilhena
+RO RUA RESIDENCIAL FLORENÇA–
+TRÊS, 1290, FUNDOS 76985663
+2026-08-01 18:25:00
 """
 
 
@@ -103,7 +102,6 @@ def test_remove_speckles_does_not_erase_the_text():
     gray = to_grayscale(decode_image(make_screenshot()))
     binary = binarize(boost_contrast(gray))
     cleaned = remove_speckles(binary)
-    # ainda há pixels escuros (o texto) depois da limpeza
     assert (cleaned == 0).sum() > 0
 
 
@@ -117,8 +115,6 @@ def test_preprocess_removes_most_of_the_watermark():
     """A marca d'água clara sobre fundo branco some no threshold adaptativo."""
     processed = preprocess_for_ocr(make_screenshot())
     dark_ratio = (processed == 0).mean()
-    # sobra o texto (pouca área escura); se a marca d'água tivesse ficado,
-    # a proporção seria muito maior
     assert 0 < dark_ratio < 0.15
 
 
@@ -127,7 +123,7 @@ def test_preprocess_removes_most_of_the_watermark():
 
 @pytest.mark.parametrize(
     "line",
-    ["2026-08-02", "82736451928374651928", "1234567890", "||||", "—————"],
+    ["2026-08-02", "82736451928374651928", "||||", "—————"],
 )
 def test_is_watermark_catches_noise(line):
     assert is_watermark(line)
@@ -136,11 +132,12 @@ def test_is_watermark_catches_noise(line):
 @pytest.mark.parametrize(
     "line",
     [
-        "BR2508140021",  # número do pedido
-        "RUA RESIDENCIAL FLORENÇA UM, 8046, CASA",
-        "Centro",
+        "888030841672038",  # número do pedido: marcador de bloco
+        "RUA RESIDENCIAL FLORENÇA-UM, 8046, CASA",
+        "MARCELA FLORINDA FUR...",
         "8046",
-        "MARCELA SOUZA",
+        "76985662",
+        "2026-08-01 18:24:00",  # data COM hora é do card, não da marca d'água
         "",
     ],
 )
@@ -151,59 +148,13 @@ def test_is_watermark_keeps_real_data(line):
 def test_filter_watermark_removes_only_the_noise_lines():
     filtered = filter_watermark(SAMPLE_OCR_TEXT)
 
-    assert "2026-08-02" not in filtered
+    assert "\n2026-08-02\n" not in f"\n{filtered}\n"
     assert "82736451928374651928" not in filtered
-    assert "BR2508140021" in filtered
-    assert "RUA RESIDENCIAL FLORENÇA UM, 8046, CASA" in filtered
+    assert "888030841672038" in filtered  # o marcador de bloco sobrevive
+    assert "UM, 8046, CASA 76985662" in filtered
 
 
-# ---------------------------------------------------------------- parser
-
-
-def test_parse_addresses_splits_into_blocks():
-    blocks = parse_addresses(filter_watermark(SAMPLE_OCR_TEXT))
-    assert len(blocks) == 3
-
-
-def test_parse_addresses_guesses_street_and_number():
-    blocks = parse_addresses(filter_watermark(SAMPLE_OCR_TEXT))
-
-    first = blocks[0]
-    assert first["street"] == "RUA RESIDENCIAL FLORENÇA UM"
-    assert first["number"] == "8046"
-    assert first["neighborhood"] == "Residencial Florença"
-
-    second = blocks[1]
-    assert second["street"] == "AV MAJOR AMARANTE"
-    assert second["number"] == "1000"
-
-
-def test_parse_addresses_handles_number_glued_to_the_street():
-    blocks = parse_addresses(filter_watermark(SAMPLE_OCR_TEXT))
-    third = blocks[2]
-    assert third["street"] == "TRAVESSA DOS IPES"
-    assert third["number"] == "45"
-
-
-def test_parse_addresses_always_keeps_raw_text():
-    blocks = parse_addresses(filter_watermark(SAMPLE_OCR_TEXT))
-    assert all(block["raw_text"] for block in blocks)
-    assert "MARCELA SOUZA" in blocks[0]["raw_text"]
-
-
-def test_parse_addresses_without_a_recognizable_street():
-    """Bloco sem rua não quebra: volta só o texto para ela preencher à mão."""
-    blocks = parse_addresses("BR2508140099\nFULANO DE TAL\nsem endereço aqui")
-
-    assert len(blocks) == 1
-    assert blocks[0]["street"] is None
-    assert blocks[0]["number"] is None
-    assert "FULANO DE TAL" in blocks[0]["raw_text"]
-
-
-def test_parse_addresses_on_empty_text():
-    assert parse_addresses("") == []
-    assert parse_addresses("\n\n   \n") == []
+# --------------------------------------------------------- extract_text
 
 
 def test_extract_text_pipeline(monkeypatch):
@@ -221,5 +172,5 @@ def test_extract_text_pipeline(monkeypatch):
 
     assert seen["lang"] == "por"
     assert seen["ndim"] == 2  # recebeu a imagem já binarizada
-    assert "2026-08-02" not in text  # peneira aplicada
-    assert "RUA RESIDENCIAL FLORENÇA UM, 8046, CASA" in text
+    assert "82736451928374651928" not in text  # peneira aplicada
+    assert "UM, 8046, CASA 76985662" in text
