@@ -1,0 +1,38 @@
+app = "delivery-route-optimizer"
+primary_region = "gru"  # São Paulo
+kill_signal = "SIGINT"
+kill_timeout = 5
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  OSRM_BASE_URL = "https://router.project-osrm.org"
+  # DATABASE_URL e SECRET_KEY entram como secrets:
+  #   fly secrets set SECRET_KEY=$(openssl rand -hex 32)
+  #   fly postgres attach <nome-do-banco>   (define DATABASE_URL)
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 25
+    soft_limit = 20
+
+[[http_service.checks]]
+  grace_period = "10s"
+  interval = "30s"
+  method = "GET"
+  timeout = "5s"
+  path = "/health"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256

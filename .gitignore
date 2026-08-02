@@ -1,0 +1,29 @@
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Banco de dados local
+*.db
+*.sqlite3
+
+# Ambiente
+.env
+.env.local
+.env*.local
+!.env.example
+
+# Editores / SO
+.DS_Store
+.vscode/
+.idea/
