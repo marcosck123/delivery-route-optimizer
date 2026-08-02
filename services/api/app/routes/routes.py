@@ -25,8 +25,8 @@ from ..schemas import (
 from ..utils.address_normalizer import build_full_address
 from ..utils.geocoding import resolve_address
 from ..utils.image_preprocessing import ImageDecodeError
-from ..utils.ocr import extract_text, parse_addresses
 from ..utils.jet_integration import get_jet_orders
+from ..utils.ocr import extract_text, parse_addresses
 from ..utils.optimization import (
     get_osrm_route,
     simple_tsp_optimization,
@@ -214,16 +214,13 @@ async def ocr_upload(
         ) from None
 
     blocks = [OcrBlock(**block) for block in parse_addresses(text)]
-    if not blocks:
-        return OcrUploadResponse(
-            blocks=[],
-            message="Não encontrei endereços nessa imagem. Tente dar zoom antes do print.",
-        )
-
-    return OcrUploadResponse(
-        blocks=blocks,
-        message=f"{len(blocks)} endereço(s) lido(s) — confira antes de adicionar.",
+    message = (
+        f"{len(blocks)} endereço(s) lido(s) — confira antes de adicionar."
+        if blocks
+        else "Não encontrei endereços nessa imagem. Tente dar zoom antes do print."
     )
+
+    return OcrUploadResponse(blocks=blocks, message=message)
 
 
 @router.post("/{route_id}/geocode", response_model=list[DeliveryResponse])
