@@ -12,6 +12,13 @@ python-multipart==0.0.32
 passlib==1.7.4
 bcrypt==4.1.1
 
+# OCR do print da lista de entregas (precisa dos binários tesseract-ocr
+# e tesseract-ocr-por, instalados no Dockerfile)
+opencv-python-headless==5.0.0.93
+numpy==2.4.6
+pytesseract==0.3.13
+pillow==12.3.0
+
 # testes
 pytest==9.1.1
 pytest-asyncio==1.4.0

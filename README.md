@@ -21,8 +21,23 @@ Aplicação full-stack para otimizar rotas de entrega com TSP + OSRM, com autent
 - ✅ Otimização automática da ordem (TSP nearest-neighbor) + traçado real do OSRM
 - ✅ Mapa Leaflet com marcadores numerados na ordem de entrega
 - ✅ Histórico de rotas com distância total
+- ✅ Importação por foto: OCR do print da lista de entregas, com revisão humana antes de salvar
 - ✅ Sincronização de pedidos da J&T Express
-- ✅ 116 testes de backend (pytest) e 30 de frontend (Vitest)
+- ✅ 152 testes de backend (pytest) e 37 de frontend (Vitest)
+
+## 📷 Importação por foto (OCR)
+
+O print do app da transportadora vem com uma marca d'água diagonal por cima do texto. O pipeline (`app/utils/image_preprocessing.py`) trata disso:
+
+1. escala de cinza; 2. CLAHE (contraste local, empurra a marca d'água para o branco e o texto para o preto); 3. threshold adaptativo gaussiano, que apaga a marca onde ela cai sobre fundo branco; 4. abertura morfológica para tirar respingos.
+
+Depois o `pytesseract` lê em português e uma peneira (`WATERMARK_PATTERNS`) remove datas `AAAA-MM-DD` e sequências numéricas longas que sobraram como texto solto.
+
+**Limite honesto:** onde a marca d'água cruzou a letra, o estrago está no pixel — nenhum filtro recupera. Por isso a tela de revisão mostra o texto lido ao lado de campos editáveis: ela corrige 1-2 caracteres e segue para o mesmo fluxo de geocodificação/confirmação.
+
+O parsing é simples de propósito (acha a linha que começa com RUA/AV/TRAVESSA e chuta rua/número/bairro). Quando não consegue separar, devolve só o `raw_text` e ela preenche.
+
+Requer os binários `tesseract-ocr` e `tesseract-ocr-por`, já instalados no `Dockerfile`.
 
 ## 📍 Como os endereços viram coordenadas
 
@@ -203,7 +218,7 @@ Custo: ~$5/mês (Fly.io shared-cpu-1x 256MB + Postgres) + Vercel grátis.
 
 ## 🗺️ Roadmap
 
-- [ ] Geocodificação (endereço → coordenadas) via Nominatim
+- [ ] Agrupar pedidos diferentes no mesmo endereço (hoje viram duas paradas)
 - [ ] Algoritmo 2-opt / Lin-Kernighan para rotas maiores
 - [ ] Integração com Shopee/Shein (importar pedidos)
 - [ ] Dashboard com KPIs (distância média, tempo de rota)

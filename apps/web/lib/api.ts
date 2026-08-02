@@ -2,6 +2,7 @@ import type {
   AddressInput,
   Delivery,
   JetConfig,
+  OcrUploadResponse,
   Route,
   RouteSummary,
 } from "./types";
@@ -118,6 +119,17 @@ export const uploadCsv = (routeId: number, file: File, token: string) => {
 };
 
 // ---------------------------------------------------------- entregas
+
+/** Lê os endereços de um print. Não cria nada — devolve para revisão. */
+export const uploadOcrImage = (routeId: number, file: File, token: string) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return request<OcrUploadResponse>(`/api/routes/${routeId}/ocr-upload`, {
+    method: "POST",
+    token,
+    body: formData,
+  });
+};
 
 /** Dispara o geocoding das entregas pendentes e devolve a lista atualizada. */
 export const geocodeRoute = (routeId: number, token: string) =>

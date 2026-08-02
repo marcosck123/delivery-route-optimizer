@@ -58,6 +58,20 @@ class DeliveryResponse(BaseModel):
     jet_order_id: Optional[str] = None
 
 
+class OcrBlock(BaseModel):
+    """One delivery read from a photo, before the user reviews it."""
+
+    raw_text: str
+    street: Optional[str] = None
+    number: Optional[str] = None
+    neighborhood: Optional[str] = None
+
+
+class OcrUploadResponse(BaseModel):
+    blocks: list[OcrBlock]
+    message: str
+
+
 class PinConfirm(BaseModel):
     """Sent when the user drags the pin to the right spot and confirms."""
 

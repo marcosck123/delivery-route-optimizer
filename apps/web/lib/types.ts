@@ -65,6 +65,19 @@ export interface RouteSummary {
   delivery_count: number;
 }
 
+/** One delivery read from a photo, before the user reviews it. */
+export interface OcrBlock {
+  raw_text: string;
+  street: string | null;
+  number: string | null;
+  neighborhood: string | null;
+}
+
+export interface OcrUploadResponse {
+  blocks: OcrBlock[];
+  message: string;
+}
+
 export interface JetConfig {
   id: number;
   jet_username: string;

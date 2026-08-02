@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import AddressConfirmation from "@/components/AddressConfirmation";
+import PhotoImport from "@/components/PhotoImport";
 import { Button } from "@/components/ui/Button";
 import {
   geocodeRoute,
@@ -242,6 +243,16 @@ export default function RoutePanel({
           </ol>
         )}
       </section>
+
+      <PhotoImport
+        routeId={routeId}
+        token={token}
+        onAdded={async () => {
+          autoGeocodedRef.current = null;
+          await load();
+          onRouteChanged();
+        }}
+      />
 
       {unconfirmed.length > 0 && busy !== "geocode" && (
         <AddressConfirmation

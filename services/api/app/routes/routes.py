@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
@@ -15,12 +16,16 @@ from ..models import (
 from ..schemas import (
     AddressInput,
     DeliveryResponse,
+    OcrBlock,
+    OcrUploadResponse,
     RouteCreate,
     RouteListResponse,
     RouteResponse,
 )
 from ..utils.address_normalizer import build_full_address
 from ..utils.geocoding import resolve_address
+from ..utils.image_preprocessing import ImageDecodeError
+from ..utils.ocr import extract_text, parse_addresses
 from ..utils.jet_integration import get_jet_orders
 from ..utils.optimization import (
     get_osrm_route,
@@ -28,6 +33,8 @@ from ..utils.optimization import (
     total_distance_km,
 )
 from .auth import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/routes", tags=["routes"])
 
@@ -177,6 +184,46 @@ async def upload_csv(
 
     db.commit()
     return {"message": f"{added} entrega(s) importada(s) para a rota {route_id}", "added": added}
+
+
+@router.post("/{route_id}/ocr-upload", response_model=OcrUploadResponse)
+async def ocr_upload(
+    route_id: int,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Lê os endereços de um print da lista de entregas.
+
+    Não cria nada: devolve o texto lido para a usuária revisar antes de
+    adicionar à rota.
+    """
+    get_owned_route(route_id, user, db)
+
+    contents = await file.read()
+    try:
+        text = extract_text(contents)
+    except ImageDecodeError:
+        raise HTTPException(
+            status_code=400, detail="Não consegui ler a imagem"
+        ) from None
+    except Exception as exc:  # Tesseract ausente, imagem corrompida...
+        logger.exception("OCR failed for route %s: %s", route_id, exc)
+        raise HTTPException(
+            status_code=500, detail="Não consegui ler a imagem"
+        ) from None
+
+    blocks = [OcrBlock(**block) for block in parse_addresses(text)]
+    if not blocks:
+        return OcrUploadResponse(
+            blocks=[],
+            message="Não encontrei endereços nessa imagem. Tente dar zoom antes do print.",
+        )
+
+    return OcrUploadResponse(
+        blocks=blocks,
+        message=f"{len(blocks)} endereço(s) lido(s) — confira antes de adicionar.",
+    )
 
 
 @router.post("/{route_id}/geocode", response_model=list[DeliveryResponse])
