@@ -1,6 +1,6 @@
 import type {
+  AddressInput,
   Delivery,
-  DeliveryInput,
   JetConfig,
   Route,
   RouteSummary,
@@ -90,7 +90,7 @@ export const getRoute = (routeId: number, token: string) =>
 
 export const createRoute = (
   name: string,
-  deliveries: DeliveryInput[],
+  deliveries: AddressInput[],
   token: string,
 ) =>
   request<Route>("/api/routes/", {
@@ -119,9 +119,33 @@ export const uploadCsv = (routeId: number, file: File, token: string) => {
 
 // ---------------------------------------------------------- entregas
 
+/** Dispara o geocoding das entregas pendentes e devolve a lista atualizada. */
+export const geocodeRoute = (routeId: number, token: string) =>
+  request<Delivery[]>(`/api/routes/${routeId}/geocode`, {
+    method: "POST",
+    token,
+  });
+
+/** Grava o ponto que a usuária confirmou/arrastou no mapa. */
+export const confirmPin = (
+  routeId: number,
+  deliveryId: number,
+  latitude: number,
+  longitude: number,
+  token: string,
+) =>
+  request<Delivery>(
+    `/api/routes/${routeId}/deliveries/${deliveryId}/confirm-pin`,
+    {
+      method: "POST",
+      token,
+      body: JSON.stringify({ delivery_id: deliveryId, latitude, longitude }),
+    },
+  );
+
 export const addDelivery = (
   routeId: number,
-  delivery: DeliveryInput,
+  delivery: AddressInput,
   token: string,
 ) =>
   request<Delivery>(`/api/routes/${routeId}/deliveries/`, {

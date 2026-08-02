@@ -6,7 +6,15 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { createRoute } from "@/lib/api";
 import { parseDeliveriesCsv } from "@/lib/csv";
-import type { DeliveryInput } from "@/lib/types";
+import type { AddressInput } from "@/lib/types";
+
+const EMPTY_ADDRESS = {
+  street: "",
+  number: "",
+  neighborhood: "",
+  complement: "",
+  cep: "",
+};
 
 export default function RouteForm({
   token,
@@ -16,36 +24,41 @@ export default function RouteForm({
   onRouteCreated: (routeId: number) => void;
 }) {
   const [routeName, setRouteName] = useState("");
-  const [deliveries, setDeliveries] = useState<DeliveryInput[]>([]);
-  const [address, setAddress] = useState("");
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
+  const [deliveries, setDeliveries] = useState<AddressInput[]>([]);
+  const [form, setForm] = useState(EMPTY_ADDRESS);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(
     null,
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleAddDelivery = () => {
-    const lat = Number(latitude);
-    const lon = Number(longitude);
+  const setField = (field: keyof typeof EMPTY_ADDRESS) => (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => setForm((current) => ({ ...current, [field]: event.target.value }));
 
-    if (!address.trim()) {
-      setMessage({ text: "Informe o endereço", error: true });
-      return;
-    }
-    if (!Number.isFinite(lat) || !Number.isFinite(lon) || !latitude || !longitude) {
-      setMessage({ text: "Latitude e longitude precisam ser números", error: true });
+  const handleAddDelivery = () => {
+    const missing = [
+      form.street.trim() ? null : "rua",
+      form.number.trim() ? null : "número",
+      form.neighborhood.trim() ? null : "bairro",
+    ].filter(Boolean);
+
+    if (missing.length > 0) {
+      setMessage({ text: `Preencha: ${missing.join(", ")}`, error: true });
       return;
     }
 
     setDeliveries([
       ...deliveries,
-      { address: address.trim(), latitude: lat, longitude: lon },
+      {
+        street: form.street.trim(),
+        number: form.number.trim(),
+        neighborhood: form.neighborhood.trim(),
+        cep: form.cep.trim() || null,
+        complement: form.complement.trim() || null,
+      },
     ]);
-    setAddress("");
-    setLatitude("");
-    setLongitude("");
+    setForm(EMPTY_ADDRESS);
     setMessage(null);
   };
 
@@ -65,7 +78,7 @@ export default function RouteForm({
             text: `${parsed.length} importada(s). Problemas: ${errors.join("; ")}`,
             error: true,
           }
-        : { text: `${parsed.length} entrega(s) importada(s) do CSV`, error: false },
+        : { text: `${parsed.length} endereço(s) importado(s) do CSV`, error: false },
     );
 
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -77,7 +90,7 @@ export default function RouteForm({
       return;
     }
     if (deliveries.length === 0) {
-      setMessage({ text: "Adicione pelo menos uma entrega", error: true });
+      setMessage({ text: "Adicione pelo menos um endereço", error: true });
       return;
     }
 
@@ -126,38 +139,48 @@ export default function RouteForm({
             className="w-full text-sm"
           />
           <p className="mt-1 text-xs text-gray-500">
-            Colunas: address, latitude, longitude
+            Colunas: street, number, neighborhood, cep, complement
           </p>
         </div>
 
         <div className="space-y-2 border-t pt-4">
-          <h3 className="font-semibold">Adicionar endereço manualmente</h3>
+          <h3 className="font-semibold">Adicionar endereço</h3>
 
           <Input
-            label="Endereço"
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            placeholder="Rua A, 123"
+            label="Rua"
+            value={form.street}
+            onChange={setField("street")}
+            placeholder="Av. Major Amarante"
           />
 
           <div className="grid grid-cols-2 gap-2">
             <Input
-              label="Latitude"
-              type="number"
-              step="0.0001"
-              value={latitude}
-              onChange={(event) => setLatitude(event.target.value)}
-              placeholder="-12.7406"
+              label="Número"
+              value={form.number}
+              onChange={setField("number")}
+              placeholder="1000"
             />
             <Input
-              label="Longitude"
-              type="number"
-              step="0.0001"
-              value={longitude}
-              onChange={(event) => setLongitude(event.target.value)}
-              placeholder="-60.1458"
+              label="Complemento"
+              value={form.complement}
+              onChange={setField("complement")}
+              placeholder="Casa / Ap 12"
             />
           </div>
+
+          <Input
+            label="Bairro"
+            value={form.neighborhood}
+            onChange={setField("neighborhood")}
+            placeholder="Centro"
+          />
+
+          <Input
+            label="CEP"
+            value={form.cep}
+            onChange={setField("cep")}
+            placeholder="76980-000 (opcional)"
+          />
 
           <Button onClick={handleAddDelivery} variant="secondary" className="w-full">
             + Adicionar
@@ -167,15 +190,17 @@ export default function RouteForm({
         {deliveries.length > 0 && (
           <div className="border-t pt-4">
             <h3 className="mb-2 font-semibold">
-              Entregas ({deliveries.length})
+              Endereços ({deliveries.length})
             </h3>
             <ul className="max-h-48 space-y-2 overflow-y-auto">
               {deliveries.map((delivery, index) => (
                 <li
-                  key={`${delivery.address}-${index}`}
+                  key={`${delivery.street}-${delivery.number}-${index}`}
                   className="flex items-center justify-between gap-2 rounded bg-gray-100 p-2"
                 >
-                  <span className="truncate text-sm">{delivery.address}</span>
+                  <span className="truncate text-sm">
+                    {delivery.street}, {delivery.number} — {delivery.neighborhood}
+                  </span>
                   <button
                     onClick={() => handleRemoveDelivery(index)}
                     className="shrink-0 text-sm text-red-600 hover:text-red-800"

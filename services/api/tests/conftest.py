@@ -54,6 +54,17 @@ def no_network_osrm(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def no_google_key(monkeypatch):
+    """Sem key por padrão: nenhum teste chama o Google sem querer."""
+    monkeypatch.delenv("GOOGLE_MAPS_API_KEY", raising=False)
+
+
+@pytest.fixture
+def google_key(monkeypatch):
+    monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "chave-de-teste")
+
+
 @pytest.fixture
 def client():
     with TestClient(app) as test_client:
@@ -74,11 +85,51 @@ def auth_headers(client):
 
 @pytest.fixture
 def sample_deliveries():
+    """Endereços de Vilhena no formato aceito pela API."""
     return [
-        {"address": "Rua A, 10", "latitude": -12.7406, "longitude": -60.1458},
-        {"address": "Rua B, 20", "latitude": -12.7452, "longitude": -60.1391},
-        {"address": "Rua C, 30", "latitude": -12.7377, "longitude": -60.1503},
+        {
+            "street": "Avenida Major Amarante",
+            "number": "1000",
+            "neighborhood": "Centro",
+        },
+        {
+            "street": "Rua Osório Duque Estrada",
+            "number": "250",
+            "neighborhood": "Jardim América",
+        },
+        {
+            "street": "Avenida Celso Mazutti",
+            "number": "3500",
+            "neighborhood": "Jardim Eldorado",
+        },
     ]
+
+
+@pytest.fixture
+def confirm_all(client, auth_headers):
+    """Confirma o pin de todas as entregas de uma rota (atalho para o optimize)."""
+
+    def _confirm(route_id, coordinates=None):
+        route = client.get(f"/api/routes/{route_id}", headers=auth_headers).json()
+        for index, delivery in enumerate(route["deliveries"]):
+            latitude, longitude = (
+                coordinates[index]
+                if coordinates
+                else (-12.7406 - index * 0.004, -60.1458 + index * 0.006)
+            )
+            response = client.post(
+                f"/api/routes/{route_id}/deliveries/{delivery['id']}/confirm-pin",
+                headers=auth_headers,
+                json={
+                    "delivery_id": delivery["id"],
+                    "latitude": latitude,
+                    "longitude": longitude,
+                },
+            )
+            assert response.status_code == 200, response.text
+        return route
+
+    return _confirm
 
 
 def pytest_sessionfinish(session, exitstatus):

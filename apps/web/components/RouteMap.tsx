@@ -5,7 +5,7 @@ import "leaflet/dist/leaflet.css";
 import { useEffect, useRef } from "react";
 
 import { sortDeliveries } from "@/lib/route";
-import type { Route } from "@/lib/types";
+import { isReady, type Coordinates, type Route } from "@/lib/types";
 
 const DEFAULT_CENTER: [number, number] = [-12.7406, -60.1458]; // Vilhena/RO
 const DEFAULT_ZOOM = 13;
@@ -52,14 +52,23 @@ export default function RouteMap({ route }: { route: Route | null }) {
 
     layer.clearLayers();
 
-    const deliveries = sortDeliveries(route?.deliveries ?? []);
+    // Só entra no mapa quem já tem coordenada confiável.
+    const deliveries = sortDeliveries(route?.deliveries ?? []).filter(isReady);
     if (deliveries.length === 0) {
       map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
       return;
     }
 
-    deliveries.forEach((delivery, index) => {
-      L.marker([delivery.latitude, delivery.longitude], {
+    const located = deliveries.map((delivery) => ({
+      ...delivery,
+      point: {
+        latitude: delivery.latitude as number,
+        longitude: delivery.longitude as number,
+      } satisfies Coordinates,
+    }));
+
+    located.forEach((delivery, index) => {
+      L.marker([delivery.point.latitude, delivery.point.longitude], {
         icon: markerIcon(index),
       })
         .bindPopup(`<strong>#${index + 1}</strong><br/>${delivery.address}`)
@@ -71,7 +80,10 @@ export default function RouteMap({ route }: { route: Route | null }) {
     const points: [number, number][] =
       osrmGeometry?.coordinates && osrmGeometry.coordinates.length > 0
         ? osrmGeometry.coordinates.map(([lon, lat]) => [lat, lon])
-        : deliveries.map((delivery) => [delivery.latitude, delivery.longitude]);
+        : located.map((delivery) => [
+            delivery.point.latitude,
+            delivery.point.longitude,
+          ]);
 
     if (points.length > 1) {
       L.polyline(points, {
@@ -83,7 +95,10 @@ export default function RouteMap({ route }: { route: Route | null }) {
     }
 
     const bounds = L.latLngBounds(
-      deliveries.map((delivery) => [delivery.latitude, delivery.longitude]),
+      located.map((delivery) => [
+        delivery.point.latitude,
+        delivery.point.longitude,
+      ]),
     );
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
   }, [route]);

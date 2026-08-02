@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Delivery, User
-from ..schemas import DeliveryCreate, DeliveryResponse
+from ..models import GEOCODE_CONFIRMED, User
+from ..schemas import DeliveryCreate, DeliveryResponse, PinConfirm
+from ..utils.geocoding import save_to_cache
 from .auth import get_current_user
-from .routes import get_owned_route
+from .routes import build_delivery, get_owned_route
 
 router = APIRouter(prefix="/api/routes/{route_id}/deliveries", tags=["deliveries"])
 
@@ -31,15 +32,10 @@ async def add_delivery(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Adiciona uma entrega a uma rota existente."""
+    """Adiciona uma entrega a uma rota existente (pendente de geocodificação)."""
     route = get_owned_route(route_id, user, db)
 
-    delivery = Delivery(
-        address=delivery_data.address,
-        latitude=delivery_data.latitude,
-        longitude=delivery_data.longitude,
-        jet_order_id=delivery_data.jet_order_id,
-    )
+    delivery = build_delivery(delivery_data, delivery_data.jet_order_id)
     route.deliveries.append(delivery)
     # a ordem anterior deixa de valer quando entra um ponto novo
     route.optimization_result = None
@@ -65,6 +61,53 @@ async def delete_delivery(
     route.deliveries.remove(delivery)
     route.optimization_result = None
     db.commit()
+
+
+@router.post("/{delivery_id}/confirm-pin", response_model=DeliveryResponse)
+async def confirm_pin(
+    route_id: int,
+    delivery_id: int,
+    pin: PinConfirm,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Grava o ponto que a usuária confirmou/arrastou no mapa.
+
+    A correção humana vira a verdade: entra no cache como ``manual`` e
+    sobrescreve o que o Google tinha respondido para o mesmo endereço.
+    """
+    route = get_owned_route(route_id, user, db)
+
+    if pin.delivery_id != delivery_id:
+        raise HTTPException(
+            status_code=400, detail="Entrega informada não confere com a da URL"
+        )
+
+    delivery = next((d for d in route.deliveries if d.id == delivery_id), None)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Entrega não encontrada")
+
+    delivery.latitude = pin.latitude
+    delivery.longitude = pin.longitude
+    delivery.geocode_status = GEOCODE_CONFIRMED
+    delivery.geocode_source = "manual"
+    delivery.geocode_message = None
+    delivery.geocode_alternatives = None
+
+    if delivery.street and delivery.number and delivery.neighborhood:
+        save_to_cache(
+            db,
+            delivery.street,
+            delivery.number,
+            delivery.neighborhood,
+            pin.latitude,
+            pin.longitude,
+            source="manual",
+        )
+
+    db.commit()
+    db.refresh(delivery)
+    return delivery
 
 
 @router.put("/order", response_model=list[DeliveryResponse])

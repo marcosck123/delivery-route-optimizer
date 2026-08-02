@@ -5,61 +5,84 @@ import { parseDeliveriesCsv } from "@/lib/csv";
 describe("parseDeliveriesCsv", () => {
   it("importa um CSV válido", () => {
     const { deliveries, errors } = parseDeliveriesCsv(
-      "address,latitude,longitude\nRua A 10,-12.7406,-60.1458\nRua B 20,-12.7452,-60.1391\n",
+      "street,number,neighborhood,cep,complement\n" +
+        "Avenida Major Amarante,1000,Centro,76980-075,\n" +
+        "Rua Osório Duque Estrada,250,Jardim América,,Fundos\n",
     );
 
     expect(errors).toEqual([]);
     expect(deliveries).toEqual([
-      { address: "Rua A 10", latitude: -12.7406, longitude: -60.1458 },
-      { address: "Rua B 20", latitude: -12.7452, longitude: -60.1391 },
+      {
+        street: "Avenida Major Amarante",
+        number: "1000",
+        neighborhood: "Centro",
+        cep: "76980-075",
+        complement: null,
+      },
+      {
+        street: "Rua Osório Duque Estrada",
+        number: "250",
+        neighborhood: "Jardim América",
+        cep: null,
+        complement: "Fundos",
+      },
     ]);
+  });
+
+  it("aceita CSV só com as colunas obrigatórias", () => {
+    const { deliveries, errors } = parseDeliveriesCsv(
+      "street,number,neighborhood\nRua A,10,Centro\n",
+    );
+
+    expect(errors).toEqual([]);
+    expect(deliveries[0]).toEqual({
+      street: "Rua A",
+      number: "10",
+      neighborhood: "Centro",
+      cep: null,
+      complement: null,
+    });
   });
 
   it("aceita BOM, CRLF e colunas fora de ordem", () => {
     const { deliveries, errors } = parseDeliveriesCsv(
-      "﻿latitude,longitude,address\r\n-12.74,-60.14,Rua C\r\n",
+      "﻿neighborhood,street,number\r\nCentro,Rua C,30\r\n",
     );
 
     expect(errors).toEqual([]);
-    expect(deliveries).toEqual([
-      { address: "Rua C", latitude: -12.74, longitude: -60.14 },
-    ]);
+    expect(deliveries[0].street).toBe("Rua C");
+    expect(deliveries[0].neighborhood).toBe("Centro");
   });
 
   it("respeita vírgulas dentro de aspas", () => {
     const { deliveries } = parseDeliveriesCsv(
-      'address,latitude,longitude\n"Rua A, 123, Vilhena",-12.74,-60.14\n',
+      'street,number,neighborhood\n"Rua Residencial Florença, Um",8046,Centro\n',
     );
 
-    expect(deliveries[0].address).toBe("Rua A, 123, Vilhena");
+    expect(deliveries[0].street).toBe("Rua Residencial Florença, Um");
   });
 
   it("reclama de colunas obrigatórias ausentes", () => {
-    const { deliveries, errors } = parseDeliveriesCsv("endereco,lat\nRua A,1\n");
+    const { deliveries, errors } = parseDeliveriesCsv(
+      "address,latitude,longitude\nRua A,-12.7,-60.1\n",
+    );
 
     expect(deliveries).toEqual([]);
     expect(errors[0]).toContain("colunas obrigatórias");
   });
 
-  it("reporta linhas inválidas sem descartar as válidas", () => {
+  it("reporta linhas incompletas sem descartar as válidas", () => {
     const { deliveries, errors } = parseDeliveriesCsv(
-      "address,latitude,longitude\nRua A,abc,-60.14\n,-12.74,-60.14\nRua C,-12.74,-60.14\n",
+      "street,number,neighborhood\nRua A,,Centro\n,10,Centro\nRua C,30,Centro\n",
     );
 
     expect(deliveries).toHaveLength(1);
-    expect(deliveries[0].address).toBe("Rua C");
+    expect(deliveries[0].street).toBe("Rua C");
     expect(errors).toHaveLength(2);
     expect(errors[0]).toContain("Linha 2");
+    expect(errors[0]).toContain("número");
     expect(errors[1]).toContain("Linha 3");
-  });
-
-  it("rejeita coordenadas fora do intervalo", () => {
-    const { deliveries, errors } = parseDeliveriesCsv(
-      "address,latitude,longitude\nRua A,200,-60.14\n",
-    );
-
-    expect(deliveries).toEqual([]);
-    expect(errors[0]).toContain("fora do intervalo");
+    expect(errors[1]).toContain("rua");
   });
 
   it("trata arquivo vazio", () => {

@@ -73,15 +73,72 @@ class Route(Base):
     )
 
 
+# Geocoding lifecycle of a delivery address.
+GEOCODE_PENDING = "pending"
+GEOCODE_RESOLVED = "resolved"
+GEOCODE_NEEDS_CONFIRMATION = "needs_confirmation"
+GEOCODE_FAILED = "failed"
+GEOCODE_CONFIRMED = "confirmed"
+
+# Statuses that carry trustworthy coordinates and allow route optimization.
+GEOCODE_READY_STATUSES = (GEOCODE_RESOLVED, GEOCODE_CONFIRMED)
+
+
 class Delivery(Base):
     __tablename__ = "deliveries"
 
     id = Column(Integer, primary_key=True)
     route_id = Column(Integer, ForeignKey("routes.id"), nullable=False, index=True)
+
+    # Full address text, assembled from the components below. Kept for display
+    # and as the human-readable label everywhere in the UI.
     address = Column(String(500), nullable=False)
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
+
+    # Address components typed by the user (Brazilian format).
+    street = Column(String(255), nullable=True)
+    number = Column(String(50), nullable=True)
+    neighborhood = Column(String(255), nullable=True)
+    cep = Column(String(20), nullable=True)
+    complement = Column(String(255), nullable=True)
+
+    # Coordinates are only filled in after geocoding, hence nullable.
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    geocode_status = Column(String(30), nullable=False, default=GEOCODE_PENDING)
+    geocode_source = Column(String(20), nullable=True)  # google | cache | manual | jet
+    # PT-BR message shown to the user; persisted so the review screen survives
+    # a page reload.
+    geocode_message = Column(String(255), nullable=True)
+    # Divergent candidates ([{latitude, longitude}, ...]) when results disagree.
+    geocode_alternatives = Column(JSON, nullable=True)
+
     sequence_order = Column(Integer, nullable=True)  # posição na rota otimizada
     jet_order_id = Column(String(100), nullable=True)  # ID do pedido na J&T
 
     route = relationship("Route", back_populates="deliveries")
+
+    @property
+    def is_ready_for_optimization(self) -> bool:
+        return (
+            self.latitude is not None
+            and self.longitude is not None
+            and self.geocode_status in GEOCODE_READY_STATUSES
+        )
+
+
+class GeocodeCache(Base):
+    """Addresses already resolved, so the same address is never billed twice.
+
+    A manual fix by the user overwrites a Google result: the human correction
+    is the source of truth.
+    """
+
+    __tablename__ = "geocode_cache"
+
+    id = Column(Integer, primary_key=True)
+    address_key = Column(String(500), unique=True, nullable=False, index=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    source = Column(String(20), nullable=False)  # google | manual
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

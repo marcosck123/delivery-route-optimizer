@@ -8,45 +8,68 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function addDelivery(address: string, lat: string, lon: string) {
-  await userEvent.type(screen.getByLabelText("Endereço"), address);
-  await userEvent.type(screen.getByLabelText("Latitude"), lat);
-  await userEvent.type(screen.getByLabelText("Longitude"), lon);
+async function fillAddress(
+  street: string,
+  number: string,
+  neighborhood: string,
+) {
+  await userEvent.type(screen.getByLabelText("Rua"), street);
+  await userEvent.type(screen.getByLabelText("Número"), number);
+  await userEvent.type(screen.getByLabelText("Bairro"), neighborhood);
+}
+
+async function addAddress(street: string, number: string, neighborhood: string) {
+  await fillAddress(street, number, neighborhood);
   await userEvent.click(screen.getByRole("button", { name: "+ Adicionar" }));
 }
 
 describe("RouteForm", () => {
-  it("adiciona e remove entregas da lista", async () => {
+  it("adiciona e remove endereços da lista", async () => {
     render(<RouteForm token="t" onRouteCreated={vi.fn()} />);
 
-    await addDelivery("Rua A, 10", "-12.7406", "-60.1458");
-    expect(screen.getByText("Entregas (1)")).toBeInTheDocument();
+    await addAddress("Avenida Major Amarante", "1000", "Centro");
+    expect(screen.getByText("Endereços (1)")).toBeInTheDocument();
+    expect(
+      screen.getByText("Avenida Major Amarante, 1000 — Centro"),
+    ).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Remover" }));
-    expect(screen.queryByText("Entregas (1)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Endereços (1)")).not.toBeInTheDocument();
+  });
+
+  it("exige rua, número e bairro", async () => {
+    render(<RouteForm token="t" onRouteCreated={vi.fn()} />);
+
+    await userEvent.type(screen.getByLabelText("Rua"), "Rua A");
+    await userEvent.click(screen.getByRole("button", { name: "+ Adicionar" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Preencha: número, bairro",
+    );
+    expect(screen.queryByText(/Endereços \(/)).not.toBeInTheDocument();
   });
 
   it("exige nome da rota antes de criar", async () => {
     render(<RouteForm token="t" onRouteCreated={vi.fn()} />);
 
-    await addDelivery("Rua A, 10", "-12.7406", "-60.1458");
+    await addAddress("Rua A", "10", "Centro");
     await userEvent.click(screen.getByRole("button", { name: "Criar Rota" }));
 
     expect(screen.getByRole("status")).toHaveTextContent("Dê um nome para a rota");
   });
 
-  it("exige pelo menos uma entrega", async () => {
+  it("exige pelo menos um endereço", async () => {
     render(<RouteForm token="t" onRouteCreated={vi.fn()} />);
 
     await userEvent.type(screen.getByLabelText("Nome da Rota"), "Rota 1");
     await userEvent.click(screen.getByRole("button", { name: "Criar Rota" }));
 
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Adicione pelo menos uma entrega",
+      "Adicione pelo menos um endereço",
     );
   });
 
-  it("cria a rota com token e entregas", async () => {
+  it("envia os endereços no formato da API", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -58,7 +81,9 @@ describe("RouteForm", () => {
     render(<RouteForm token="meu-token" onRouteCreated={onRouteCreated} />);
 
     await userEvent.type(screen.getByLabelText("Nome da Rota"), "Rota 1");
-    await addDelivery("Rua A, 10", "-12.7406", "-60.1458");
+    await fillAddress("Rua Residencial Florença Um", "8046", "Florença");
+    await userEvent.type(screen.getByLabelText("Complemento"), "CASA");
+    await userEvent.click(screen.getByRole("button", { name: "+ Adicionar" }));
     await userEvent.click(screen.getByRole("button", { name: "Criar Rota" }));
 
     await waitFor(() => expect(onRouteCreated).toHaveBeenCalledWith(7));
@@ -69,8 +94,37 @@ describe("RouteForm", () => {
     expect(JSON.parse(options.body)).toEqual({
       name: "Rota 1",
       deliveries: [
-        { address: "Rua A, 10", latitude: -12.7406, longitude: -60.1458 },
+        {
+          street: "Rua Residencial Florença Um",
+          number: "8046",
+          neighborhood: "Florença",
+          cep: null,
+          complement: "CASA",
+        },
       ],
     });
+  });
+
+  it("mostra a mensagem humana quando a API recusa", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({ detail: "Rota sem entregas" }),
+      }),
+    );
+
+    render(<RouteForm token="t" onRouteCreated={vi.fn()} />);
+
+    await userEvent.type(screen.getByLabelText("Nome da Rota"), "Rota 1");
+    await addAddress("Rua A", "10", "Centro");
+    await userEvent.click(screen.getByRole("button", { name: "Criar Rota" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Rota sem entregas"),
+    );
+    // não vaza status HTTP nem nome de API
+    expect(screen.getByRole("status").textContent).not.toMatch(/400|fetch|API/);
   });
 });

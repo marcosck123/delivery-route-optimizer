@@ -8,8 +8,17 @@ function delivery(id: number, sequenceOrder: number | null): Delivery {
     id,
     route_id: 1,
     address: `Rua ${id}`,
+    street: `Rua ${id}`,
+    number: "10",
+    neighborhood: "Centro",
+    cep: null,
+    complement: null,
     latitude: -12.74,
     longitude: -60.14,
+    geocode_status: "confirmed",
+    geocode_source: "manual",
+    geocode_message: null,
+    geocode_alternatives: null,
     sequence_order: sequenceOrder,
   };
 }

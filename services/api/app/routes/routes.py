@@ -5,12 +5,22 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Delivery, Route, User
+from ..models import (
+    GEOCODE_PENDING,
+    GEOCODE_RESOLVED,
+    Delivery,
+    Route,
+    User,
+)
 from ..schemas import (
+    AddressInput,
+    DeliveryResponse,
     RouteCreate,
     RouteListResponse,
     RouteResponse,
 )
+from ..utils.address_normalizer import build_full_address
+from ..utils.geocoding import resolve_address
 from ..utils.jet_integration import get_jet_orders
 from ..utils.optimization import (
     get_osrm_route,
@@ -21,7 +31,28 @@ from .auth import get_current_user
 
 router = APIRouter(prefix="/api/routes", tags=["routes"])
 
-CSV_REQUIRED_COLUMNS = {"address", "latitude", "longitude"}
+CSV_REQUIRED_COLUMNS = {"street", "number", "neighborhood"}
+CSV_OPTIONAL_COLUMNS = {"cep", "complement"}
+
+
+def build_delivery(address: AddressInput, jet_order_id: str | None = None) -> Delivery:
+    """Create a delivery in the ``pending`` state — geocoding happens later."""
+    return Delivery(
+        address=build_full_address(
+            address.street,
+            address.number,
+            address.neighborhood,
+            address.cep,
+            address.complement,
+        ),
+        street=address.street,
+        number=address.number,
+        neighborhood=address.neighborhood,
+        cep=address.cep,
+        complement=address.complement,
+        geocode_status=GEOCODE_PENDING,
+        jet_order_id=jet_order_id,
+    )
 
 
 def get_owned_route(route_id: int, user: User, db: Session) -> Route:
@@ -42,18 +73,11 @@ async def create_route(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Cria uma rota com os endereços iniciais."""
+    """Cria uma rota com os endereços iniciais (ainda sem geocodificar)."""
     route = Route(name=route_data.name, user_id=user.id)
 
-    for delivery in route_data.deliveries:
-        route.deliveries.append(
-            Delivery(
-                address=delivery.address,
-                latitude=delivery.latitude,
-                longitude=delivery.longitude,
-                jet_order_id=delivery.jet_order_id,
-            )
-        )
+    for address in route_data.deliveries:
+        route.deliveries.append(build_delivery(address))
 
     db.add(route)
     db.commit()
@@ -112,7 +136,8 @@ async def upload_csv(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Importa entregas de um CSV com as colunas address, latitude, longitude."""
+    """Importa entregas de um CSV com as colunas street, number, neighborhood
+    (e, opcionalmente, cep e complement)."""
     route = get_owned_route(route_id, user, db)
 
     contents = await file.read()
@@ -133,27 +158,56 @@ async def upload_csv(
     added = 0
     for line_number, row in enumerate(reader, start=2):
         normalized = {(k or "").strip().lower(): (v or "").strip() for k, v in row.items()}
-        address = normalized.get("address", "")
-        if not address:
-            raise HTTPException(
-                status_code=400, detail=f"Linha {line_number}: endereço vazio"
-            )
         try:
-            latitude = float(normalized.get("latitude", ""))
-            longitude = float(normalized.get("longitude", ""))
+            address = AddressInput(
+                street=normalized.get("street", ""),
+                number=normalized.get("number", ""),
+                neighborhood=normalized.get("neighborhood", ""),
+                cep=normalized.get("cep") or None,
+                complement=normalized.get("complement") or None,
+            )
         except ValueError:
             raise HTTPException(
                 status_code=400,
-                detail=f"Linha {line_number}: latitude/longitude inválidas",
+                detail=f"Linha {line_number}: rua, número e bairro são obrigatórios",
             ) from None
 
-        route.deliveries.append(
-            Delivery(address=address, latitude=latitude, longitude=longitude)
-        )
+        route.deliveries.append(build_delivery(address))
         added += 1
 
     db.commit()
     return {"message": f"{added} entrega(s) importada(s) para a rota {route_id}", "added": added}
+
+
+@router.post("/{route_id}/geocode", response_model=list[DeliveryResponse])
+async def geocode_route(
+    route_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Geocodifica as entregas ainda pendentes da rota (cache → Google)."""
+    route = get_owned_route(route_id, user, db)
+
+    pending = [d for d in route.deliveries if d.geocode_status == GEOCODE_PENDING]
+    for delivery in pending:
+        result = await resolve_address(
+            db,
+            delivery.street or "",
+            delivery.number or "",
+            delivery.neighborhood or "",
+            delivery.cep,
+            delivery.complement,
+        )
+        delivery.latitude = result.latitude
+        delivery.longitude = result.longitude
+        delivery.geocode_status = result.status
+        delivery.geocode_source = result.source
+        delivery.geocode_message = result.message
+        delivery.geocode_alternatives = result.alternatives or None
+
+    db.commit()
+    db.refresh(route)
+    return route.deliveries
 
 
 @router.post("/{route_id}/optimize", response_model=RouteResponse)
@@ -167,6 +221,16 @@ async def optimize_route(
 
     if not route.deliveries:
         raise HTTPException(status_code=400, detail="Rota sem entregas")
+
+    # Optimizing with half-resolved addresses would silently produce a wrong
+    # route, so we block and name exactly which addresses are missing.
+    unresolved = [d for d in route.deliveries if not d.is_ready_for_optimization]
+    if unresolved:
+        names = "; ".join(d.address for d in unresolved)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Confirme todos os endereços antes de otimizar: {names}",
+        )
 
     deliveries_by_id = {d.id: d for d in route.deliveries}
     deliveries_dict = [
@@ -216,12 +280,15 @@ async def sync_jet_orders(
     route.deliveries.clear()
     db.flush()
 
+    # J&T already returns coordinates, so these deliveries skip geocoding.
     for order in orders:
         route.deliveries.append(
             Delivery(
                 address=order["address"],
                 latitude=order["latitude"],
                 longitude=order["longitude"],
+                geocode_status=GEOCODE_RESOLVED,
+                geocode_source="jet",
                 jet_order_id=order.get("orderid"),
             )
         )

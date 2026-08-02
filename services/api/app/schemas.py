@@ -7,27 +7,75 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # ---------------------------------------------------------------- entregas
 
 
-class DeliveryCreate(BaseModel):
-    address: str = Field(min_length=1, max_length=500)
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
-    jet_order_id: Optional[str] = Field(default=None, max_length=100)
+class AddressInput(BaseModel):
+    """Brazilian address typed by the user. Coordinates come from geocoding."""
 
-    @field_validator("address")
+    street: str = Field(min_length=1, max_length=255)
+    number: str = Field(min_length=1, max_length=50)
+    neighborhood: str = Field(min_length=1, max_length=255)
+    cep: Optional[str] = Field(default=None, max_length=20)
+    complement: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("street", "number", "neighborhood")
     @classmethod
-    def strip_address(cls, value: str) -> str:
+    def strip_required(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError("Endereço não pode ser vazio")
+            raise ValueError("Campo obrigatório")
         return value
 
+    @field_validator("cep", "complement")
+    @classmethod
+    def strip_optional(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
-class DeliveryResponse(DeliveryCreate):
+
+class DeliveryCreate(AddressInput):
+    jet_order_id: Optional[str] = Field(default=None, max_length=100)
+
+
+class DeliveryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     route_id: int
+    address: str
+    street: Optional[str] = None
+    number: Optional[str] = None
+    neighborhood: Optional[str] = None
+    cep: Optional[str] = None
+    complement: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    geocode_status: str
+    geocode_source: Optional[str] = None
+    geocode_message: Optional[str] = None
+    geocode_alternatives: Optional[list[dict[str, Any]]] = None
     sequence_order: Optional[int] = None
+    jet_order_id: Optional[str] = None
+
+
+class PinConfirm(BaseModel):
+    """Sent when the user drags the pin to the right spot and confirms."""
+
+    delivery_id: int
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class GeocodeResult(BaseModel):
+    """Internal result of a geocoding attempt. ``message`` is UI-ready PT-BR."""
+
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    status: str
+    source: Optional[str] = None
+    message: Optional[str] = None
+    # Divergent candidates the user must choose between, as {latitude, longitude}
+    alternatives: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ------------------------------------------------------------------ rotas
@@ -35,7 +83,7 @@ class DeliveryResponse(DeliveryCreate):
 
 class RouteCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    deliveries: list[DeliveryCreate] = Field(default_factory=list)
+    deliveries: list[AddressInput] = Field(default_factory=list)
 
 
 class RouteOptimize(BaseModel):

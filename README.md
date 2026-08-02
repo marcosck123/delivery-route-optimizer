@@ -14,12 +14,29 @@ Aplicação full-stack para otimizar rotas de entrega com TSP + OSRM, com autent
 ## 🚀 Features
 
 - ✅ Cadastro/login com JWT; cada rota pertence a um usuário
-- ✅ Endereços manuais ou importados de CSV (no navegador ou via upload para a API)
+- ✅ Endereços em formato brasileiro (rua, número, bairro, CEP, complemento), digitados ou importados de CSV
+- ✅ Geocodificação pelo Google, com cross-check de número por extenso vs dígito
+- ✅ Confirmação visual do pin, um endereço por vez, com marcador arrastável
+- ✅ Cache de endereços: o mesmo endereço nunca é cobrado duas vezes, e a correção manual vira a verdade
 - ✅ Otimização automática da ordem (TSP nearest-neighbor) + traçado real do OSRM
 - ✅ Mapa Leaflet com marcadores numerados na ordem de entrega
 - ✅ Histórico de rotas com distância total
 - ✅ Sincronização de pedidos da J&T Express
-- ✅ 49 testes de backend (pytest) e 21 de frontend (Vitest)
+- ✅ 116 testes de backend (pytest) e 30 de frontend (Vitest)
+
+## 📍 Como os endereços viram coordenadas
+
+```
+form/CSV  ->  pending  ->  /geocode  ->  resolved            ->  otimizar
+                             |            needs_confirmation  ->  confirmar pin  ->  confirmed
+                             |            failed              ->  marcar no mapa ->  confirmed
+                             └─ cache (sem custo) ─────────────────────────────────┘
+```
+
+- **Cross-check:** quando a rua tem número por extenso ("Rua Residencial Florença Um"), o app consulta também a variante com dígito ("Rua Residencial Florença 1"). Se os dois pontos ficam a mais de 50 m um do outro, ela decide no mapa.
+- **CEP errado** é a causa mais comum de endereço não encontrado: o app tenta de novo sem o CEP antes de desistir.
+- **Sem `GOOGLE_MAPS_API_KEY`** o app sobe normalmente; o geocoding responde "Busca de endereços não configurada" e todos os pins podem ser marcados à mão.
+- A otimização só é liberada quando todo endereço tem coordenada confiável.
 
 ## 🏗️ Arquitetura
 
@@ -135,6 +152,24 @@ Documentação interativa em `/docs`.
 | `OSRM_BASE_URL` | `https://router.project-osrm.org` | Instância do OSRM |
 | `CORS_ORIGINS` | `*` | Origens liberadas, separadas por vírgula |
 | `JET_API_BASE_URL` | vazio | Sem valor, a J&T roda em modo sandbox |
+| `GOOGLE_MAPS_API_KEY` | vazio | Geocodificação. Sem ela o app sobe, mas não busca endereços |
+
+## 🗃️ Migrações
+
+O SQLAlchemy só cria tabelas novas (`create_all`), nunca altera as existentes. Depois de atualizar um banco que já tem dados, rode uma vez:
+
+```bash
+cd services/api
+python -m migrations.001_address_fields
+```
+
+Em produção:
+
+```bash
+fly ssh console -a delivery-route-optimizer-api -C "python -m migrations.001_address_fields"
+```
+
+A migração é idempotente (pode rodar quantas vezes quiser): adiciona as colunas de endereço/geocoding, torna `latitude`/`longitude` opcionais e marca as entregas antigas — que já tinham coordenadas — como `resolved`.
 
 **Frontend:** `NEXT_PUBLIC_API_URL`.
 

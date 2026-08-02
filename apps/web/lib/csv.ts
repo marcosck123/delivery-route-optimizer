@@ -1,11 +1,11 @@
-import type { DeliveryInput } from "./types";
+import type { AddressInput } from "./types";
 
 export interface CsvParseResult {
-  deliveries: DeliveryInput[];
+  deliveries: AddressInput[];
   errors: string[];
 }
 
-const REQUIRED_COLUMNS = ["address", "latitude", "longitude"] as const;
+const REQUIRED_COLUMNS = ["street", "number", "neighborhood"] as const;
 
 /** Divide uma linha de CSV respeitando aspas duplas. */
 function splitCsvLine(line: string): string[] {
@@ -36,9 +36,9 @@ function splitCsvLine(line: string): string[] {
 }
 
 /**
- * Converte o conteúdo de um CSV (colunas address, latitude, longitude) em
- * entregas. Linhas inválidas viram mensagens em `errors` em vez de derrubar
- * a importação inteira.
+ * Converte o conteúdo de um CSV (colunas street, number, neighborhood e,
+ * opcionalmente, cep e complement) em endereços. Linhas inválidas viram
+ * mensagens em `errors` em vez de derrubar a importação inteira.
  */
 export function parseDeliveriesCsv(content: string): CsvParseResult {
   const errors: string[] = [];
@@ -60,33 +60,44 @@ export function parseDeliveriesCsv(content: string): CsvParseResult {
     };
   }
 
-  const addressIndex = headers.indexOf("address");
-  const latitudeIndex = headers.indexOf("latitude");
-  const longitudeIndex = headers.indexOf("longitude");
+  const indexes = {
+    street: headers.indexOf("street"),
+    number: headers.indexOf("number"),
+    neighborhood: headers.indexOf("neighborhood"),
+    cep: headers.indexOf("cep"),
+    complement: headers.indexOf("complement"),
+  };
 
-  const deliveries: DeliveryInput[] = [];
+  const deliveries: AddressInput[] = [];
 
   lines.slice(1).forEach((line, index) => {
     const lineNumber = index + 2;
     const values = splitCsvLine(line);
-    const address = values[addressIndex] ?? "";
-    const latitude = Number(values[latitudeIndex]);
-    const longitude = Number(values[longitudeIndex]);
+    const at = (position: number) =>
+      position >= 0 ? (values[position] ?? "").trim() : "";
 
-    if (!address) {
-      errors.push(`Linha ${lineNumber}: endereço vazio`);
-      return;
-    }
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      errors.push(`Linha ${lineNumber}: latitude/longitude inválidas`);
-      return;
-    }
-    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-      errors.push(`Linha ${lineNumber}: coordenadas fora do intervalo válido`);
+    const street = at(indexes.street);
+    const number = at(indexes.number);
+    const neighborhood = at(indexes.neighborhood);
+
+    const missingFields = [
+      street ? null : "rua",
+      number ? null : "número",
+      neighborhood ? null : "bairro",
+    ].filter(Boolean);
+
+    if (missingFields.length > 0) {
+      errors.push(`Linha ${lineNumber}: falta ${missingFields.join(", ")}`);
       return;
     }
 
-    deliveries.push({ address, latitude, longitude });
+    deliveries.push({
+      street,
+      number,
+      neighborhood,
+      cep: at(indexes.cep) || null,
+      complement: at(indexes.complement) || null,
+    });
   });
 
   return { deliveries, errors };
