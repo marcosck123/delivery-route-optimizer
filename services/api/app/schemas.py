@@ -37,6 +37,21 @@ class DeliveryCreate(AddressInput):
     jet_order_id: Optional[str] = Field(default=None, max_length=100)
 
 
+class GeocodeCandidate(BaseModel):
+    """One option Google returned for an address.
+
+    ``formatted_address`` is what makes the choice possible: she recognizes
+    the right one by reading it ("ah, esse é o bairro certo").
+    """
+
+    latitude: float
+    longitude: float
+    formatted_address: Optional[str] = None
+    location_type: Optional[str] = None
+    # Distance to the point currently saved, when there is one to compare with.
+    distance_m: Optional[float] = None
+
+
 class DeliveryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -81,21 +96,6 @@ class PinConfirm(BaseModel):
     delivery_id: int
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-
-
-class GeocodeCandidate(BaseModel):
-    """One option Google returned for an address.
-
-    ``formatted_address`` is what makes the choice possible: she recognizes
-    the right one by reading it ("ah, esse é o bairro certo").
-    """
-
-    latitude: float
-    longitude: float
-    formatted_address: Optional[str] = None
-    location_type: Optional[str] = None
-    # Distance to the point currently saved, when there is one to compare with.
-    distance_m: Optional[float] = None
 
 
 class GeocodeResult(BaseModel):
