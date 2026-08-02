@@ -269,6 +269,7 @@ async def set_start_point(
                 payload.latitude,
                 payload.longitude,
                 source="manual",
+                user_id=user.id,
             )
 
         route.optimization_result = None  # a ordem anterior partia de outro lugar
@@ -295,6 +296,7 @@ async def set_start_point(
         payload.neighborhood,
         payload.cep,
         payload.complement,
+        user_id=user.id,
     )
     address = build_full_address(
         payload.street,
@@ -358,6 +360,7 @@ async def geocode_route(
             delivery.neighborhood or "",
             delivery.cep,
             delivery.complement,
+            user_id=user.id,
         )
         delivery.latitude = result.latitude
         delivery.longitude = result.longitude

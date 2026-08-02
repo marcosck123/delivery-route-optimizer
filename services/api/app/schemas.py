@@ -205,6 +205,31 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+# ------------------------------------------------------ endereços salvos
+
+
+class GeocodeCacheResponse(BaseModel):
+    """One saved address, as shown on the "Endereços salvos" screen."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    address: Optional[str] = None
+    address_key: str
+    latitude: float
+    longitude: float
+    source: str  # google | manual
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class GeocodeCacheUpdate(BaseModel):
+    """New coordinates for a saved address, after she fixed the pin."""
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
 # ------------------------------------------------------------- J&T Express
 
 

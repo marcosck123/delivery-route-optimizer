@@ -17,6 +17,7 @@ logger = logging.getLogger("migration")
 MIGRATIONS = [
     "migrations.001_address_fields",
     "migrations.002_route_start_point",
+    "migrations.003_geocode_cache_user",
 ]
 
 

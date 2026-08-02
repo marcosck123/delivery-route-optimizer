@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -137,12 +138,22 @@ class GeocodeCache(Base):
 
     A manual fix by the user overwrites a Google result: the human correction
     is the source of truth.
+
+    Entries are owned by a user, so one person's correction cannot move
+    someone else's deliveries. ``user_id`` is nullable because the cache was
+    global before: those legacy rows stay shared and readable by everyone.
     """
 
     __tablename__ = "geocode_cache"
+    __table_args__ = (
+        UniqueConstraint("user_id", "address_key", name="uq_geocode_cache_user_address"),
+    )
 
     id = Column(Integer, primary_key=True)
-    address_key = Column(String(500), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    address_key = Column(String(500), nullable=False, index=True)
+    # Readable form of the same address, for the "saved addresses" screen.
+    address = Column(String(500), nullable=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     source = Column(String(20), nullable=False)  # google | manual

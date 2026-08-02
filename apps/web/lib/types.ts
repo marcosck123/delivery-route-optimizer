@@ -110,6 +110,18 @@ export interface OcrUploadResponse {
   message: string;
 }
 
+/** Um endereço salvo no cache de geocoding. */
+export interface SavedAddress {
+  id: number;
+  address: string | null;
+  address_key: string;
+  latitude: number;
+  longitude: number;
+  source: string; // google | manual
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface JetConfig {
   id: number;
   jet_username: string;

@@ -15,6 +15,7 @@ import os
 from typing import Any, Optional
 
 import httpx
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -284,11 +285,34 @@ async def geocode_address(
 # ------------------------------------------------------------------- cache
 
 
+def visible_cache_filter(user_id: Optional[int]):
+    """Entries a user may read: her own, plus the shared legacy ones.
+
+    Legacy rows (``user_id`` NULL) predate ownership and stay readable by
+    everyone; anything owned by somebody else is invisible.
+    """
+    if user_id is None:
+        return GeocodeCache.user_id.is_(None)
+    return or_(GeocodeCache.user_id == user_id, GeocodeCache.user_id.is_(None))
+
+
 def lookup_cache(
-    db: Session, street: str, number: str, neighborhood: str
+    db: Session,
+    street: str,
+    number: str,
+    neighborhood: str,
+    user_id: Optional[int] = None,
 ) -> Optional[GeocodeCache]:
+    """Her own entry wins over a shared legacy one for the same address."""
     key = normalize_address_key(street, number, neighborhood, CITY)
-    return db.query(GeocodeCache).filter(GeocodeCache.address_key == key).first()
+    entries = (
+        db.query(GeocodeCache)
+        .filter(GeocodeCache.address_key == key, visible_cache_filter(user_id))
+        .all()
+    )
+    if not entries:
+        return None
+    return next((entry for entry in entries if entry.user_id == user_id), entries[0])
 
 
 def save_to_cache(
@@ -299,14 +323,25 @@ def save_to_cache(
     latitude: float,
     longitude: float,
     source: str,
+    user_id: Optional[int] = None,
 ) -> GeocodeCache:
-    """Upsert. A ``manual`` entry always wins over a ``google`` one."""
+    """Upsert for this user. A ``manual`` entry always wins over ``google``."""
     key = normalize_address_key(street, number, neighborhood, CITY)
-    entry = db.query(GeocodeCache).filter(GeocodeCache.address_key == key).first()
+    address = f"{street}, {number} - {neighborhood}".strip(" ,-")
+    entry = (
+        db.query(GeocodeCache)
+        .filter(
+            GeocodeCache.address_key == key,
+            GeocodeCache.user_id == user_id,
+        )
+        .first()
+    )
 
     if entry is None:
         entry = GeocodeCache(
+            user_id=user_id,
             address_key=key,
+            address=address,
             latitude=latitude,
             longitude=longitude,
             source=source,
@@ -320,6 +355,7 @@ def save_to_cache(
     entry.latitude = latitude
     entry.longitude = longitude
     entry.source = source
+    entry.address = entry.address or address
     return entry
 
 
@@ -331,9 +367,10 @@ async def resolve_address(
     cep: Optional[str] = None,
     complement: Optional[str] = None,
     client: Optional[httpx.AsyncClient] = None,
+    user_id: Optional[int] = None,
 ) -> GeocodeResult:
     """Cache first, Google second. Successful results feed the cache back."""
-    cached = lookup_cache(db, street, number, neighborhood)
+    cached = lookup_cache(db, street, number, neighborhood, user_id=user_id)
     if cached:
         return GeocodeResult(
             latitude=cached.latitude,
@@ -357,6 +394,7 @@ async def resolve_address(
             result.latitude,
             result.longitude,
             source="google",
+            user_id=user_id,
         )
 
     return result

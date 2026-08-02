@@ -103,6 +103,7 @@ async def confirm_pin(
             pin.latitude,
             pin.longitude,
             source="manual",
+            user_id=user.id,
         )
 
     db.commit()

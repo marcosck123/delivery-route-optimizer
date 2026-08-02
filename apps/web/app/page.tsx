@@ -7,6 +7,7 @@ import Login from "@/components/Login";
 import RouteForm from "@/components/RouteForm";
 import RouteList from "@/components/RouteList";
 import RoutePanel from "@/components/RoutePanel";
+import SavedAddresses from "@/components/SavedAddresses";
 import { TOKEN_STORAGE_KEY } from "@/lib/api";
 
 export default function Home() {
@@ -89,6 +90,7 @@ export default function Home() {
                 refreshRoutes();
               }}
             />
+            <SavedAddresses token={token} />
             <JetConfigPanel token={token} />
           </div>
 

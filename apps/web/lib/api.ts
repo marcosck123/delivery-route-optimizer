@@ -5,6 +5,7 @@ import type {
   OcrUploadResponse,
   Route,
   RouteSummary,
+  SavedAddress,
   StartPointInput,
   StartPointResponse,
 } from "./types";
@@ -194,6 +195,27 @@ export const deleteDelivery = (
   request<void>(`/api/routes/${routeId}/deliveries/${deliveryId}`, {
     method: "DELETE",
     token,
+  });
+
+// ------------------------------------------------ endereços salvos
+
+export const listSavedAddresses = (token: string) =>
+  request<SavedAddress[]>("/api/geocode-cache/", { token });
+
+export const deleteSavedAddress = (entryId: number, token: string) =>
+  request<void>(`/api/geocode-cache/${entryId}`, { method: "DELETE", token });
+
+/** Corrige o ponto salvo; a entrada passa a valer como correção manual. */
+export const correctSavedAddress = (
+  entryId: number,
+  latitude: number,
+  longitude: number,
+  token: string,
+) =>
+  request<SavedAddress>(`/api/geocode-cache/${entryId}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({ latitude, longitude }),
   });
 
 // -------------------------------------------------------------- J&T

@@ -81,10 +81,38 @@ def test_002_adds_the_route_start_point(legacy_db):
     )
 
 
+def test_003_adds_the_cache_owner(legacy_db):
+    run_migration("migrations.001_address_fields", legacy_db)  # cria geocode_cache
+    run_migration("migrations.003_geocode_cache_user", legacy_db)
+
+    assert {"user_id", "address"} <= columns(legacy_db, "geocode_cache")
+
+
+def test_003_keeps_legacy_entries_shared(legacy_db):
+    """Entradas anteriores ficam com user_id nulo — visíveis a todos."""
+    run_migration("migrations.001_address_fields", legacy_db)
+    with legacy_db.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO geocode_cache (address_key, latitude, longitude, source) "
+                "VALUES ('rua a 10 centro vilhena', -12.7, -60.1, 'google')"
+            )
+        )
+
+    run_migration("migrations.003_geocode_cache_user", legacy_db)
+
+    with legacy_db.connect() as connection:
+        owner = connection.execute(
+            text("SELECT user_id FROM geocode_cache WHERE address_key = 'rua a 10 centro vilhena'")
+        ).scalar()
+    assert owner is None
+
+
 def test_migrations_are_idempotent(legacy_db):
     for _ in range(2):
         run_migration("migrations.001_address_fields", legacy_db)
         run_migration("migrations.002_route_start_point", legacy_db)
+        run_migration("migrations.003_geocode_cache_user", legacy_db)
 
     with legacy_db.connect() as connection:
         # nenhum dado perdido no caminho
@@ -99,4 +127,5 @@ def test_run_all_lists_every_migration():
     assert run_all.MIGRATIONS == [
         "migrations.001_address_fields",
         "migrations.002_route_start_point",
+        "migrations.003_geocode_cache_user",
     ]
