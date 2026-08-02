@@ -182,9 +182,9 @@ async def test_cross_check_divergent_results_need_confirmation(google_key):
 
     assert result.status == GEOCODE_NEEDS_CONFIRMATION
     assert result.message == Messages.DIVERGENT
-    assert len(result.alternatives) == 2
-    assert result.alternatives[0]["latitude"] == -12.7406
-    assert result.alternatives[1]["latitude"] == -12.7510
+    assert len(result.candidates) == 2
+    assert result.candidates[0].latitude == -12.7406
+    assert result.candidates[1].latitude == -12.7510
 
 
 async def test_no_cross_check_when_street_has_no_spelled_out_number(google_key):

@@ -19,6 +19,14 @@ export interface Coordinates {
   longitude: number;
 }
 
+/** Uma opção devolvida pelo Google para o mesmo endereço. */
+export interface GeocodeCandidate extends Coordinates {
+  formatted_address?: string | null;
+  location_type?: string | null;
+  /** Distância até o ponto salvo hoje, quando há um para comparar. */
+  distance_m?: number | null;
+}
+
 export interface Delivery extends AddressInput {
   id: number;
   route_id: number;
@@ -28,7 +36,7 @@ export interface Delivery extends AddressInput {
   geocode_status: GeocodeStatus;
   geocode_source: string | null;
   geocode_message: string | null;
-  geocode_alternatives: Coordinates[] | null;
+  geocode_alternatives: GeocodeCandidate[] | null;
   sequence_order: number | null;
   jet_order_id?: string | null;
 }
@@ -83,7 +91,7 @@ export interface StartPointResponse {
   status: GeocodeStatus;
   source: string | null;
   message: string | null;
-  alternatives: Coordinates[];
+  candidates: GeocodeCandidate[];
 }
 
 export interface RouteSummary {
@@ -120,6 +128,13 @@ export interface SavedAddress {
   source: string; // google | manual
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface GeocodeRecheck {
+  candidates: GeocodeCandidate[];
+  current_latitude: number;
+  current_longitude: number;
+  message: string | null;
 }
 
 export interface JetConfig {

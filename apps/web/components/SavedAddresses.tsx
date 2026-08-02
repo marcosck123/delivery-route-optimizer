@@ -3,13 +3,15 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 
+import CandidateList from "@/components/CandidateList";
 import { Button } from "@/components/ui/Button";
 import {
   correctSavedAddress,
   deleteSavedAddress,
   listSavedAddresses,
+  recheckSavedAddress,
 } from "@/lib/api";
-import type { Coordinates, SavedAddress } from "@/lib/types";
+import type { Coordinates, GeocodeCandidate, SavedAddress } from "@/lib/types";
 
 // Leaflet depende de window — sem ssr:false o build da Vercel quebra.
 const PinMap = dynamic(() => import("@/components/PinMap"), {
@@ -36,6 +38,8 @@ export default function SavedAddresses({ token }: { token: string }) {
   const [error, setError] = useState("");
   const [correcting, setCorrecting] = useState<SavedAddress | null>(null);
   const [position, setPosition] = useState<Coordinates | null>(null);
+  const [candidates, setCandidates] = useState<GeocodeCandidate[]>([]);
+  const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -56,10 +60,26 @@ export default function SavedAddresses({ token }: { token: string }) {
     load();
   }, [load]);
 
-  const startCorrection = (entry: SavedAddress) => {
+  const startCorrection = async (entry: SavedAddress) => {
     setCorrecting(entry);
     setPosition({ latitude: entry.latitude, longitude: entry.longitude });
+    setCandidates([]);
     setError("");
+
+    // Pergunta ao Google de novo: escolher lendo o endereço é mais confiável
+    // do que arrastar o pin no olho.
+    setChecking(true);
+    try {
+      const recheck = await recheckSavedAddress(entry.id, token);
+      setCandidates(recheck.candidates ?? []);
+      if (recheck.message) setError(recheck.message);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Não consegui buscar as opções",
+      );
+    } finally {
+      setChecking(false);
+    }
   };
 
   const handleDelete = async (entry: SavedAddress) => {
@@ -154,7 +174,26 @@ export default function SavedAddresses({ token }: { token: string }) {
           <p className="text-sm font-medium">
             Corrigindo: {correcting.address ?? correcting.address_key}
           </p>
-          <PinMap position={position} onMove={setPosition} />
+          {checking && (
+            <p className="text-sm text-gray-500">Buscando opções...</p>
+          )}
+
+          <CandidateList
+            candidates={candidates}
+            selected={position}
+            onSelect={(candidate) =>
+              setPosition({
+                latitude: candidate.latitude,
+                longitude: candidate.longitude,
+              })
+            }
+          />
+
+          <PinMap
+            position={position}
+            alternatives={candidates}
+            onMove={setPosition}
+          />
           <p className="text-xs text-gray-500">
             Arraste o pin ou toque no mapa para ajustar.
           </p>
@@ -171,6 +210,7 @@ export default function SavedAddresses({ token }: { token: string }) {
               onClick={() => {
                 setCorrecting(null);
                 setPosition(null);
+                setCandidates([]);
               }}
             >
               Cancelar

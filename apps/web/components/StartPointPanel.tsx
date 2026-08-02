@@ -3,11 +3,17 @@
 import dynamic from "next/dynamic";
 import { useState } from "react";
 
+import CandidateList from "@/components/CandidateList";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { clearStartPoint, setStartPoint } from "@/lib/api";
 import { CITY_CENTER } from "@/lib/geo";
-import type { Coordinates, Route, StartPointResponse } from "@/lib/types";
+import type {
+  Coordinates,
+  GeocodeCandidate,
+  Route,
+  StartPointResponse,
+} from "@/lib/types";
 
 // Leaflet depende de window — sem ssr:false o build da Vercel quebra.
 const PinMap = dynamic(() => import("@/components/PinMap"), {
@@ -49,7 +55,7 @@ export default function StartPointPanel({
   // ponto aguardando confirmação no mapa (endereço ambíguo ou ajuste manual)
   const [pending, setPending] = useState<{
     position: Coordinates;
-    alternatives: Coordinates[];
+    candidates: GeocodeCandidate[];
   } | null>(null);
 
   const hasStart = route.start_latitude !== null && route.start_longitude !== null;
@@ -74,7 +80,7 @@ export default function StartPointPanel({
         response.latitude !== null && response.longitude !== null
           ? { latitude: response.latitude, longitude: response.longitude }
           : CITY_CENTER,
-      alternatives: response.alternatives ?? [],
+      candidates: response.candidates ?? [],
     });
     setMessage({
       text: response.message ?? "Confirme o ponto no mapa",
@@ -160,7 +166,7 @@ export default function StartPointPanel({
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
           },
-          alternatives: [],
+          candidates: [],
         });
         setMessage({ text: "Confira o ponto no mapa e confirme", error: false });
       },
@@ -262,9 +268,27 @@ export default function StartPointPanel({
 
       {pending && (
         <div className="mt-3 space-y-2">
+          <CandidateList
+            candidates={pending.candidates}
+            selected={pending.position}
+            onSelect={(candidate) =>
+              setPending((current) =>
+                current
+                  ? {
+                      ...current,
+                      position: {
+                        latitude: candidate.latitude,
+                        longitude: candidate.longitude,
+                      },
+                    }
+                  : current,
+              )
+            }
+          />
+
           <PinMap
             position={pending.position}
-            alternatives={pending.alternatives}
+            alternatives={pending.candidates}
             onMove={(position) =>
               setPending((current) => (current ? { ...current, position } : current))
             }

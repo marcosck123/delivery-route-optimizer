@@ -25,7 +25,7 @@ from ..models import (
     GEOCODE_RESOLVED,
     GeocodeCache,
 )
-from ..schemas import GeocodeResult
+from ..schemas import GeocodeCandidate, GeocodeResult
 from .address_normalizer import normalize_address_key, street_with_digits
 from .optimization import haversine
 
@@ -66,6 +66,7 @@ class Messages:
     DIVERGENT = "Dois resultados diferentes — confirme no mapa"
     APPROXIMATE = "Endereço aproximado — confirme no mapa"
     UNAVAILABLE = "Não foi possível localizar agora"
+    MULTIPLE = "Vários endereços parecidos — escolha o certo"
 
 
 def get_api_key() -> str:
@@ -112,12 +113,7 @@ def _first_result(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
     return results[0] if results else None
 
 
-def _candidate_from_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """Flatten a Google payload into {latitude, longitude, location_type, partial}."""
-    result = _first_result(payload)
-    if not result:
-        return None
-
+def _flatten_result(result: dict[str, Any]) -> Optional[dict[str, Any]]:
     location = (result.get("geometry") or {}).get("location") or {}
     if location.get("lat") is None or location.get("lng") is None:
         return None
@@ -127,7 +123,24 @@ def _candidate_from_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]
         "longitude": float(location["lng"]),
         "location_type": (result.get("geometry") or {}).get("location_type", ""),
         "partial_match": bool(result.get("partial_match")),
+        "formatted_address": result.get("formatted_address"),
     }
+
+
+def _candidates_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every result Google returned, flattened — not just the first.
+
+    More than one means the address is ambiguous, and she is the one who can
+    tell which is right by reading ``formatted_address``.
+    """
+    flattened = (_flatten_result(result) for result in payload.get("results") or [])
+    return [candidate for candidate in flattened if candidate is not None]
+
+
+def _candidate_from_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """The first result, which is the one the decision logic runs on."""
+    candidates = _candidates_from_payload(payload)
+    return candidates[0] if candidates else None
 
 
 def _is_high_confidence(candidate: dict[str, Any]) -> bool:
@@ -158,13 +171,37 @@ async def _diagnose_failure(
 
 async def _geocode_query(
     query: str, client: httpx.AsyncClient
-) -> tuple[Optional[dict[str, Any]], str]:
-    """Returns (candidate, google_status)."""
+) -> tuple[Optional[dict[str, Any]], str, list[dict[str, Any]]]:
+    """Returns (first candidate, google status, every candidate)."""
     payload = await _call_google(query, client)
     status = payload.get("status", "UNKNOWN")
     if status != "OK":
-        return None, status
-    return _candidate_from_payload(payload), status
+        return None, status, []
+    candidates = _candidates_from_payload(payload)
+    return (candidates[0] if candidates else None), status, candidates
+
+
+def to_candidate(
+    raw: dict[str, Any], reference: Optional[tuple[float, float]] = None
+) -> GeocodeCandidate:
+    """Shape a raw candidate for the API, with its distance to the saved pin."""
+    distance_m = None
+    if reference is not None:
+        distance_m = round(
+            haversine(
+                reference[0], reference[1], raw["latitude"], raw["longitude"]
+            )
+            * 1000,
+            1,
+        )
+
+    return GeocodeCandidate(
+        latitude=raw["latitude"],
+        longitude=raw["longitude"],
+        formatted_address=raw.get("formatted_address"),
+        location_type=raw.get("location_type") or None,
+        distance_m=distance_m,
+    )
 
 
 async def geocode_address(
@@ -174,6 +211,7 @@ async def geocode_address(
     cep: Optional[str] = None,
     complement: Optional[str] = None,
     client: Optional[httpx.AsyncClient] = None,
+    reference: Optional[tuple[float, float]] = None,
 ) -> GeocodeResult:
     """Geocode one address, cross-checking spelled-out vs numeric street names."""
     if not get_api_key():
@@ -183,7 +221,7 @@ async def geocode_address(
     owns_client = client is None
     client = client or httpx.AsyncClient(timeout=GEOCODE_TIMEOUT_SECONDS)
     try:
-        candidate, status = await _geocode_query(
+        candidate, status, candidates = await _geocode_query(
             build_query(street, number, neighborhood, cep), client
         )
 
@@ -191,7 +229,7 @@ async def geocode_address(
         retried_without_cep = False
         if candidate is None and status == "ZERO_RESULTS" and cep:
             retried_without_cep = True
-            candidate, status = await _geocode_query(
+            candidate, status, candidates = await _geocode_query(
                 build_query(street, number, neighborhood, None), client
             )
 
@@ -206,7 +244,7 @@ async def geocode_address(
         digit_variant = street_with_digits(street)
         variant_candidate = None
         if digit_variant:
-            variant_candidate, _ = await _geocode_query(
+            variant_candidate, _, _variant_candidates = await _geocode_query(
                 build_query(digit_variant, number, neighborhood, None if retried_without_cep else cep),
                 client,
             )
@@ -229,15 +267,9 @@ async def geocode_address(
                     status=GEOCODE_NEEDS_CONFIRMATION,
                     source="google",
                     message=Messages.DIVERGENT,
-                    alternatives=[
-                        {
-                            "latitude": candidate["latitude"],
-                            "longitude": candidate["longitude"],
-                        },
-                        {
-                            "latitude": variant_candidate["latitude"],
-                            "longitude": variant_candidate["longitude"],
-                        },
+                    candidates=[
+                        to_candidate(candidate, reference),
+                        to_candidate(variant_candidate, reference),
                     ],
                 )
 
@@ -251,6 +283,7 @@ async def geocode_address(
                 longitude=best["longitude"],
                 status=GEOCODE_RESOLVED,
                 source="google",
+                candidates=[to_candidate(best, reference)],
             )
 
         winner = candidate or variant_candidate
@@ -262,12 +295,18 @@ async def geocode_address(
             )
             return GeocodeResult(status=GEOCODE_FAILED, message=message)
 
-        if _is_high_confidence(winner):
+        # Vários resultados para o mesmo endereço já são ambiguidade: ela
+        # escolhe lendo o formatted_address de cada um.
+        shown = candidates if candidates else [winner]
+        rich = [to_candidate(item, reference) for item in shown]
+
+        if _is_high_confidence(winner) and len(shown) == 1:
             return GeocodeResult(
                 latitude=winner["latitude"],
                 longitude=winner["longitude"],
                 status=GEOCODE_RESOLVED,
                 source="google",
+                candidates=rich,
             )
 
         return GeocodeResult(
@@ -275,7 +314,10 @@ async def geocode_address(
             longitude=winner["longitude"],
             status=GEOCODE_NEEDS_CONFIRMATION,
             source="google",
-            message=Messages.APPROXIMATE,
+            message=(
+                Messages.MULTIPLE if len(shown) > 1 else Messages.APPROXIMATE
+            ),
+            candidates=rich,
         )
     finally:
         if owns_client:
@@ -368,6 +410,7 @@ async def resolve_address(
     complement: Optional[str] = None,
     client: Optional[httpx.AsyncClient] = None,
     user_id: Optional[int] = None,
+    reference: Optional[tuple[float, float]] = None,
 ) -> GeocodeResult:
     """Cache first, Google second. Successful results feed the cache back."""
     cached = lookup_cache(db, street, number, neighborhood, user_id=user_id)
@@ -379,10 +422,23 @@ async def resolve_address(
                 GEOCODE_CONFIRMED if cached.source == "manual" else GEOCODE_RESOLVED
             ),
             source="cache",
+            candidates=[
+                GeocodeCandidate(
+                    latitude=cached.latitude,
+                    longitude=cached.longitude,
+                    formatted_address=cached.address,
+                )
+            ],
         )
 
     result = await geocode_address(
-        street, number, neighborhood, cep, complement, client=client
+        street,
+        number,
+        neighborhood,
+        cep,
+        complement,
+        client=client,
+        reference=reference,
     )
 
     if result.status == GEOCODE_RESOLVED and result.latitude is not None:
@@ -398,3 +454,37 @@ async def resolve_address(
         )
 
     return result
+
+
+async def geocode_free_form(
+    query: str,
+    reference: Optional[tuple[float, float]] = None,
+    client: Optional[httpx.AsyncClient] = None,
+) -> tuple[list[GeocodeCandidate], Optional[str]]:
+    """Look an address up as free text and return every option Google gives.
+
+    Used to re-check an address already saved: the cache holds the readable
+    text, not the components, and here we want all the options anyway.
+    Returns ``(candidates, message)`` — the message is UI-ready PT-BR.
+    """
+    if not get_api_key():
+        return [], Messages.NOT_CONFIGURED
+
+    owns_client = client is None
+    client = client or httpx.AsyncClient(timeout=GEOCODE_TIMEOUT_SECONDS)
+    try:
+        full_query = f"{query}, {CITY}, {STATE}, {COUNTRY}"
+        _, status, candidates = await _geocode_query(full_query, client)
+    finally:
+        if owns_client:
+            await client.aclose()
+
+    if not candidates:
+        message = (
+            Messages.ADDRESS_NOT_FOUND
+            if status == "ZERO_RESULTS"
+            else Messages.UNAVAILABLE
+        )
+        return [], message
+
+    return [to_candidate(item, reference) for item in candidates], None

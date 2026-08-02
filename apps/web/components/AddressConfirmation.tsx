@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
+import CandidateList from "@/components/CandidateList";
 import { Button } from "@/components/ui/Button";
 import { confirmPin } from "@/lib/api";
 import { CITY_CENTER } from "@/lib/geo";
@@ -148,13 +149,22 @@ export default function AddressConfirmation({
             {current.geocode_message}
           </p>
         )}
-        {current.geocode_alternatives &&
-          current.geocode_alternatives.length > 1 && (
-            <p className="mt-1 text-xs text-gray-600">
-              Toque em uma das opções amarelas ou arraste o pin azul.
-            </p>
-          )}
       </div>
+
+      {current.geocode_alternatives && (
+        <div className="mb-3">
+          <CandidateList
+            candidates={current.geocode_alternatives}
+            selected={position}
+            onSelect={(candidate) =>
+              setPosition({
+                latitude: candidate.latitude,
+                longitude: candidate.longitude,
+              })
+            }
+          />
+        </div>
+      )}
 
       <PinMap
         position={position}

@@ -10,8 +10,12 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import GeocodeCache, User
-from ..schemas import GeocodeCacheResponse, GeocodeCacheUpdate
-from ..utils.geocoding import visible_cache_filter
+from ..schemas import (
+    GeocodeCacheResponse,
+    GeocodeCacheUpdate,
+    GeocodeRecheckResponse,
+)
+from ..utils.geocoding import geocode_free_form, visible_cache_filter
 from .auth import get_current_user
 
 router = APIRouter(prefix="/api/geocode-cache", tags=["geocode-cache"])
@@ -74,3 +78,29 @@ async def update_cache_entry(
     db.commit()
     db.refresh(entry)
     return entry
+
+
+@router.post("/{entry_id}/recheck", response_model=GeocodeRecheckResponse)
+async def recheck_cache_entry(
+    entry_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Pergunta ao Google de novo e devolve as opções para ela escolher.
+
+    Cada opção vem com o endereço formatado do Google e a distância até o
+    ponto salvo hoje — um clique errado costuma estar longe da opção certa.
+    """
+    entry = get_visible_entry(entry_id, user, db)
+
+    candidates, message = await geocode_free_form(
+        entry.address or entry.address_key,
+        reference=(entry.latitude, entry.longitude),
+    )
+
+    return GeocodeRecheckResponse(
+        candidates=candidates,
+        current_latitude=entry.latitude,
+        current_longitude=entry.longitude,
+        message=message,
+    )

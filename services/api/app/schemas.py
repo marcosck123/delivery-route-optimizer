@@ -53,7 +53,7 @@ class DeliveryResponse(BaseModel):
     geocode_status: str
     geocode_source: Optional[str] = None
     geocode_message: Optional[str] = None
-    geocode_alternatives: Optional[list[dict[str, Any]]] = None
+    geocode_alternatives: Optional[list[GeocodeCandidate]] = None
     sequence_order: Optional[int] = None
     jet_order_id: Optional[str] = None
 
@@ -83,6 +83,21 @@ class PinConfirm(BaseModel):
     longitude: float = Field(ge=-180, le=180)
 
 
+class GeocodeCandidate(BaseModel):
+    """One option Google returned for an address.
+
+    ``formatted_address`` is what makes the choice possible: she recognizes
+    the right one by reading it ("ah, esse é o bairro certo").
+    """
+
+    latitude: float
+    longitude: float
+    formatted_address: Optional[str] = None
+    location_type: Optional[str] = None
+    # Distance to the point currently saved, when there is one to compare with.
+    distance_m: Optional[float] = None
+
+
 class GeocodeResult(BaseModel):
     """Internal result of a geocoding attempt. ``message`` is UI-ready PT-BR."""
 
@@ -91,8 +106,9 @@ class GeocodeResult(BaseModel):
     status: str
     source: Optional[str] = None
     message: Optional[str] = None
-    # Divergent candidates the user must choose between, as {latitude, longitude}
-    alternatives: list[dict[str, Any]] = Field(default_factory=list)
+    # Every option worth showing. One item when the answer is unambiguous;
+    # several when Google returned more than one or the cross-check diverged.
+    candidates: list[GeocodeCandidate] = Field(default_factory=list)
 
 
 # ------------------------------------------------------------------ rotas
@@ -156,7 +172,7 @@ class StartPointResponse(BaseModel):
     status: str
     source: Optional[str] = None
     message: Optional[str] = None
-    alternatives: list[dict[str, Any]] = Field(default_factory=list)
+    candidates: list[GeocodeCandidate] = Field(default_factory=list)
 
 
 class RouteListResponse(BaseModel):
@@ -228,6 +244,15 @@ class GeocodeCacheUpdate(BaseModel):
 
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
+
+
+class GeocodeRecheckResponse(BaseModel):
+    """Options for a saved address, to correct it by choosing instead of guessing."""
+
+    candidates: list[GeocodeCandidate] = Field(default_factory=list)
+    current_latitude: float
+    current_longitude: float
+    message: Optional[str] = None
 
 
 # ------------------------------------------------------------- J&T Express

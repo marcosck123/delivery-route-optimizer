@@ -322,7 +322,7 @@ async def set_start_point(
         address=address,
         status=result.status,
         message=result.message,
-        alternatives=result.alternatives,
+        candidates=result.candidates,
     )
 
 
@@ -367,7 +367,11 @@ async def geocode_route(
         delivery.geocode_status = result.status
         delivery.geocode_source = result.source
         delivery.geocode_message = result.message
-        delivery.geocode_alternatives = result.alternatives or None
+        delivery.geocode_alternatives = (
+            [candidate.model_dump() for candidate in result.candidates]
+            if len(result.candidates) > 1
+            else None
+        )
 
     db.commit()
     db.refresh(route)

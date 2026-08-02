@@ -47,6 +47,37 @@ function mockFetch(response: unknown, ok = true, status = 200) {
   return fetchMock;
 }
 
+const RECHECK = {
+  candidates: [
+    {
+      latitude: -12.73,
+      longitude: -60.14,
+      formatted_address: "Rua Osório, 250 - Centro, Vilhena - RO",
+      distance_m: 0,
+    },
+    {
+      latitude: -12.8,
+      longitude: -60.2,
+      formatted_address: "Rua Osório, 250 - Jardim, Vilhena - RO",
+      distance_m: 900,
+    },
+  ],
+  current_latitude: -12.73,
+  current_longitude: -60.14,
+  message: null,
+};
+
+/** GET devolve a lista; POST .../recheck devolve as opções do Google. */
+function mockListAndRecheck(entries = ENTRIES, recheck = RECHECK) {
+  const fetchMock = vi.fn().mockImplementation(async (url: string) => ({
+    ok: true,
+    status: 200,
+    json: async () => (url.includes("/recheck") ? recheck : entries),
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 describe("SavedAddresses", () => {
   it("lista os endereços salvos com a origem", async () => {
     mockFetch(ENTRIES);
@@ -109,25 +140,58 @@ describe("SavedAddresses", () => {
   });
 
   it("abre o mapa no ponto atual ao corrigir", async () => {
-    mockFetch(ENTRIES);
+    mockListAndRecheck();
 
     render(<SavedAddresses token="t" />);
     await screen.findByText("Rua Osório, 250 - Centro");
 
     await userEvent.click(screen.getAllByRole("button", { name: "Corrigir" })[0]);
 
-    expect(screen.getByTestId("pin-map")).toHaveTextContent("-12.73");
+    expect(await screen.findByTestId("pin-map")).toHaveTextContent("-12.73");
     expect(
       screen.getByText("Corrigindo: Rua Osório, 250 - Centro"),
     ).toBeInTheDocument();
   });
 
-  it("salva a correção com PATCH e atualiza a lista", async () => {
-    const fetchMock = mockFetch(ENTRIES);
+  it("mostra as opções do Google ao corrigir", async () => {
+    const fetchMock = mockListAndRecheck();
 
     render(<SavedAddresses token="t" />);
     await screen.findByText("Rua Osório, 250 - Centro");
     await userEvent.click(screen.getAllByRole("button", { name: "Corrigir" })[0]);
+
+    expect(
+      await screen.findByText("Qual desses é o endereço certo?"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Jardim, Vilhena - RO/)).toBeInTheDocument();
+    expect(screen.getByText("a 900 m do pin atual")).toBeInTheDocument();
+
+    const recheckCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/recheck"),
+    );
+    expect(recheckCall?.[1].method).toBe("POST");
+  });
+
+  it("escolher uma opção move o pin", async () => {
+    mockListAndRecheck();
+
+    render(<SavedAddresses token="t" />);
+    await screen.findByText("Rua Osório, 250 - Centro");
+    await userEvent.click(screen.getAllByRole("button", { name: "Corrigir" })[0]);
+    await screen.findByText("Qual desses é o endereço certo?");
+
+    await userEvent.click(screen.getByText(/Jardim, Vilhena - RO/));
+
+    expect(screen.getByTestId("pin-map")).toHaveTextContent("-12.8");
+  });
+
+  it("salva a correção com PATCH e atualiza a lista", async () => {
+    const fetchMock = mockListAndRecheck();
+
+    render(<SavedAddresses token="t" />);
+    await screen.findByText("Rua Osório, 250 - Centro");
+    await userEvent.click(screen.getAllByRole("button", { name: "Corrigir" })[0]);
+    await screen.findByTestId("pin-map");
 
     fetchMock.mockResolvedValue({
       ok: true,

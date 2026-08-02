@@ -3,6 +3,7 @@ import type {
   Delivery,
   JetConfig,
   OcrUploadResponse,
+  GeocodeRecheck,
   Route,
   RouteSummary,
   SavedAddress,
@@ -204,6 +205,13 @@ export const listSavedAddresses = (token: string) =>
 
 export const deleteSavedAddress = (entryId: number, token: string) =>
   request<void>(`/api/geocode-cache/${entryId}`, { method: "DELETE", token });
+
+/** Pergunta ao Google de novo e devolve as opções para ela escolher. */
+export const recheckSavedAddress = (entryId: number, token: string) =>
+  request<GeocodeRecheck>(`/api/geocode-cache/${entryId}/recheck`, {
+    method: "POST",
+    token,
+  });
 
 /** Corrige o ponto salvo; a entrada passa a valer como correção manual. */
 export const correctSavedAddress = (
