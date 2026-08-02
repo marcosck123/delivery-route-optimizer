@@ -25,22 +25,34 @@ def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * asin(sqrt(a)) * EARTH_RADIUS_KM
 
 
-def simple_tsp_optimization(deliveries: Sequence[dict[str, Any]]) -> list[int]:
+def simple_tsp_optimization(
+    deliveries: Sequence[dict[str, Any]],
+    start: Optional[tuple[float, float]] = None,
+) -> list[int]:
     """TSP por vizinho mais próximo.
 
     Recebe dicts com ``id``, ``latitude`` e ``longitude``; devolve os ``id``
-    na ordem de visita. O primeiro item da lista é sempre o ponto de partida.
+    na ordem de visita.
+
+    ``start`` é o ponto de partida da rota, em ``(latitude, longitude)``: a
+    primeira entrega passa a ser a mais próxima dele. O ponto de partida não é
+    uma entrega e não entra na lista devolvida. Sem ele, a rota começa pela
+    primeira entrega, como antes.
     """
     if not deliveries:
         return []
 
-    unvisited = set(range(1, len(deliveries)))
-    current = 0
-    order = [current]
+    if start is None:
+        order = [0]
+        unvisited = set(range(1, len(deliveries)))
+        current_lat = deliveries[0]["latitude"]
+        current_lon = deliveries[0]["longitude"]
+    else:
+        order = []
+        unvisited = set(range(len(deliveries)))
+        current_lat, current_lon = start
 
     while unvisited:
-        current_lat = deliveries[current]["latitude"]
-        current_lon = deliveries[current]["longitude"]
         nearest = min(
             unvisited,
             key=lambda i: haversine(
@@ -52,7 +64,8 @@ def simple_tsp_optimization(deliveries: Sequence[dict[str, Any]]) -> list[int]:
         )
         order.append(nearest)
         unvisited.remove(nearest)
-        current = nearest
+        current_lat = deliveries[nearest]["latitude"]
+        current_lon = deliveries[nearest]["longitude"]
 
     return [deliveries[i]["id"] for i in order]
 

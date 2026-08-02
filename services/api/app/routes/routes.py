@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import (
+    GEOCODE_CONFIRMED,
     GEOCODE_PENDING,
+    GEOCODE_READY_STATUSES,
     GEOCODE_RESOLVED,
     Delivery,
     Route,
@@ -21,9 +23,11 @@ from ..schemas import (
     RouteCreate,
     RouteListResponse,
     RouteResponse,
+    StartPointInput,
+    StartPointResponse,
 )
 from ..utils.address_normalizer import build_full_address
-from ..utils.geocoding import resolve_address
+from ..utils.geocoding import resolve_address, save_to_cache
 from ..utils.image_preprocessing import ImageDecodeError
 from ..utils.jet_integration import get_jet_orders
 from ..utils.ocr import extract_text, parse_addresses
@@ -223,6 +227,119 @@ async def ocr_upload(
     return OcrUploadResponse(blocks=blocks, message=message)
 
 
+@router.post("/{route_id}/start-point", response_model=StartPointResponse)
+async def set_start_point(
+    route_id: int,
+    payload: StartPointInput,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Define de onde a rota começa.
+
+    Aceita as duas formas: um endereço para geocodificar, ou um pin já
+    escolhido (confirmado no mapa, ou a localização atual do celular). O pin é
+    gravado na hora; um endereço ambíguo volta para confirmação e só é gravado
+    depois que ela confirmar no mapa.
+    """
+    route = get_owned_route(route_id, user, db)
+
+    if payload.has_pin:
+        address = payload.address or (
+            build_full_address(
+                payload.street,
+                payload.number,
+                payload.neighborhood,
+                payload.cep,
+                payload.complement,
+            )
+            if payload.has_address
+            else "Ponto marcado no mapa"
+        )
+        route.start_latitude = payload.latitude
+        route.start_longitude = payload.longitude
+        route.start_address = address
+
+        # A correção humana vale para as próximas rotas também.
+        if payload.has_address:
+            save_to_cache(
+                db,
+                payload.street,
+                payload.number,
+                payload.neighborhood,
+                payload.latitude,
+                payload.longitude,
+                source="manual",
+            )
+
+        route.optimization_result = None  # a ordem anterior partia de outro lugar
+        db.commit()
+        return StartPointResponse(
+            saved=True,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            address=address,
+            status=GEOCODE_CONFIRMED,
+            source="manual",
+        )
+
+    if not payload.has_address:
+        raise HTTPException(
+            status_code=400,
+            detail="Informe rua, número e bairro — ou marque o ponto no mapa",
+        )
+
+    result = await resolve_address(
+        db,
+        payload.street,
+        payload.number,
+        payload.neighborhood,
+        payload.cep,
+        payload.complement,
+    )
+    address = build_full_address(
+        payload.street,
+        payload.number,
+        payload.neighborhood,
+        payload.cep,
+        payload.complement,
+    )
+
+    # Só grava o que já está confiável; o resto volta para ela conferir no mapa.
+    saved = result.status in GEOCODE_READY_STATUSES and result.latitude is not None
+    if saved:
+        route.start_latitude = result.latitude
+        route.start_longitude = result.longitude
+        route.start_address = address
+        route.optimization_result = None
+
+    db.commit()
+    return StartPointResponse(
+        saved=saved,
+        latitude=result.latitude,
+        longitude=result.longitude,
+        address=address,
+        status=result.status,
+        message=result.message,
+        alternatives=result.alternatives,
+    )
+
+
+@router.delete("/{route_id}/start-point", status_code=204)
+async def clear_start_point(
+    route_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove o ponto de partida — a rota volta a começar pela primeira entrega."""
+    route = get_owned_route(route_id, user, db)
+
+    route.start_latitude = None
+    route.start_longitude = None
+    route.start_address = None
+    route.optimization_result = None
+    db.commit()
+
+
 @router.post("/{route_id}/geocode", response_model=list[DeliveryResponse])
 async def geocode_route(
     route_id: int,
@@ -282,18 +399,38 @@ async def optimize_route(
         for d in route.deliveries
     ]
 
-    optimized_ids = simple_tsp_optimization(deliveries_dict)
+    # Com ponto de partida, a primeira entrega é a mais próxima dele; sem ele,
+    # a rota começa pela primeira entrega, como antes.
+    start = (
+        (route.start_latitude, route.start_longitude)
+        if route.start_latitude is not None and route.start_longitude is not None
+        else None
+    )
+
+    optimized_ids = simple_tsp_optimization(deliveries_dict, start=start)
     for index, delivery_id in enumerate(optimized_ids):
         deliveries_by_id[delivery_id].sequence_order = index
 
     ordered = [deliveries_by_id[delivery_id] for delivery_id in optimized_ids]
     coordinates = [(d.longitude, d.latitude) for d in ordered]
+    if start:
+        # o trajeto desenhado sai do ponto de partida
+        coordinates.insert(0, (route.start_longitude, route.start_latitude))
 
     osrm_result = await get_osrm_route(coordinates)
 
     route.optimization_result = {
         "optimized_order": optimized_ids,
         "estimated_distance_km": total_distance_km(coordinates),
+        "start_point": (
+            {
+                "latitude": route.start_latitude,
+                "longitude": route.start_longitude,
+                "address": route.start_address,
+            }
+            if start
+            else None
+        ),
         "osrm": osrm_result,
     }
     db.commit()

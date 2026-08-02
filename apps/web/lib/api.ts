@@ -5,6 +5,8 @@ import type {
   OcrUploadResponse,
   Route,
   RouteSummary,
+  StartPointInput,
+  StartPointResponse,
 } from "./types";
 
 export const API_URL =
@@ -119,6 +121,24 @@ export const uploadCsv = (routeId: number, file: File, token: string) => {
 };
 
 // ---------------------------------------------------------- entregas
+
+/** Define de onde a rota começa: endereço para geocodificar ou pin pronto. */
+export const setStartPoint = (
+  routeId: number,
+  payload: StartPointInput,
+  token: string,
+) =>
+  request<StartPointResponse>(`/api/routes/${routeId}/start-point`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+
+export const clearStartPoint = (routeId: number, token: string) =>
+  request<void>(`/api/routes/${routeId}/start-point`, {
+    method: "DELETE",
+    token,
+  });
 
 /** Lê os endereços de um print. Não cria nada — devolve para revisão. */
 export const uploadOcrImage = (routeId: number, file: File, token: string) => {

@@ -30,6 +30,9 @@ function route(optimizationResult: Route["optimization_result"]): Route {
     created_at: "2026-08-01T12:00:00Z",
     deliveries: [],
     optimization_result: optimizationResult,
+    start_latitude: null,
+    start_longitude: null,
+    start_address: null,
   };
 }
 
@@ -61,6 +64,7 @@ describe("routeDistanceKm", () => {
       route({
         optimized_order: [1, 2],
         estimated_distance_km: 3,
+        start_point: null,
         osrm: { routes: [{ distance: 4321 }] },
       }),
     );
@@ -72,6 +76,7 @@ describe("routeDistanceKm", () => {
       route({
         optimized_order: [1, 2],
         estimated_distance_km: 3.5,
+        start_point: null,
         osrm: { error: "timeout" },
       }),
     );

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import AddressConfirmation from "@/components/AddressConfirmation";
 import PhotoImport from "@/components/PhotoImport";
+import StartPointPanel from "@/components/StartPointPanel";
 import { Button } from "@/components/ui/Button";
 import {
   geocodeRoute,
@@ -145,6 +146,17 @@ export default function RoutePanel({
 
   return (
     <div className="space-y-4">
+      {route && (
+        <StartPointPanel
+          route={route}
+          token={token}
+          onChanged={async () => {
+            await load();
+            onRouteChanged();
+          }}
+        />
+      )}
+
       <section className="overflow-hidden rounded-lg bg-white shadow">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
           <div>

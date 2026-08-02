@@ -10,7 +10,7 @@ kill_timeout = 5
 # Sem isso o código novo subiria consultando colunas que ainda não existem.
 # A migração é idempotente, então repetir a cada deploy é inofensivo.
 [deploy]
-  release_command = "python -m migrations.001_address_fields"
+  release_command = "python -m migrations.run_all"
 
 [env]
   PORT = "8080"

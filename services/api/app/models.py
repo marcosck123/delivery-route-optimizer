@@ -61,6 +61,12 @@ class Route(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     optimization_result = Column(JSON, nullable=True)  # rota otimizada + payload OSRM
+
+    # Optional starting point: where the trip begins (her home, the depot...).
+    # It anchors the optimization but is never a stop to be delivered.
+    start_latitude = Column(Float, nullable=True)
+    start_longitude = Column(Float, nullable=True)
+    start_address = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

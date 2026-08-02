@@ -47,6 +47,7 @@ export interface OsrmResult {
 export interface OptimizationResult {
   optimized_order: number[];
   estimated_distance_km: number;
+  start_point: (Coordinates & { address: string | null }) | null;
   osrm: OsrmResult;
 }
 
@@ -56,6 +57,33 @@ export interface Route {
   created_at: string;
   deliveries: Delivery[];
   optimization_result: OptimizationResult | null;
+  /** Ponto de partida opcional: de onde o trajeto começa. */
+  start_latitude: number | null;
+  start_longitude: number | null;
+  start_address: string | null;
+}
+
+export interface StartPointInput {
+  street?: string;
+  number?: string;
+  neighborhood?: string;
+  cep?: string | null;
+  complement?: string | null;
+  latitude?: number;
+  longitude?: number;
+  address?: string;
+}
+
+export interface StartPointResponse {
+  /** false = ainda precisa da confirmação dela no mapa. */
+  saved: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  address: string | null;
+  status: GeocodeStatus;
+  source: string | null;
+  message: string | null;
+  alternatives: Coordinates[];
 }
 
 export interface RouteSummary {

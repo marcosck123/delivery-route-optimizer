@@ -115,6 +115,48 @@ class RouteResponse(BaseModel):
     created_at: datetime
     deliveries: list[DeliveryResponse]
     optimization_result: Optional[dict[str, Any]] = None
+    start_latitude: Optional[float] = None
+    start_longitude: Optional[float] = None
+    start_address: Optional[str] = None
+
+
+class StartPointInput(BaseModel):
+    """Where the route begins — an address to geocode, or a pin already chosen.
+
+    Send the address components to have it looked up, or latitude/longitude
+    straight away (confirmed pin, current location).
+    """
+
+    street: Optional[str] = Field(default=None, max_length=255)
+    number: Optional[str] = Field(default=None, max_length=50)
+    neighborhood: Optional[str] = Field(default=None, max_length=255)
+    cep: Optional[str] = Field(default=None, max_length=20)
+    complement: Optional[str] = Field(default=None, max_length=255)
+
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    address: Optional[str] = Field(default=None, max_length=500)
+
+    @property
+    def has_pin(self) -> bool:
+        return self.latitude is not None and self.longitude is not None
+
+    @property
+    def has_address(self) -> bool:
+        return bool(self.street and self.number and self.neighborhood)
+
+
+class StartPointResponse(BaseModel):
+    """``saved`` is False when the point still needs her eyes on the map."""
+
+    saved: bool
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    address: Optional[str] = None
+    status: str
+    source: Optional[str] = None
+    message: Optional[str] = None
+    alternatives: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RouteListResponse(BaseModel):

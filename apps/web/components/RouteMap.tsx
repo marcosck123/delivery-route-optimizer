@@ -12,10 +12,21 @@ const DEFAULT_ZOOM = 13;
 
 function markerIcon(index: number) {
   return L.divIcon({
-    className: `delivery-marker${index === 0 ? " is-start" : ""}`,
+    className: "delivery-marker",
     html: `<span>${index + 1}</span>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
+  });
+}
+
+// O ponto de partida não é uma parada: verde e escrito, para não se confundir
+// com a numeração das entregas.
+function startIcon() {
+  return L.divIcon({
+    className: "delivery-marker is-start",
+    html: `<span>&#9873;</span>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
   });
 }
 
@@ -52,9 +63,27 @@ export default function RouteMap({ route }: { route: Route | null }) {
 
     layer.clearLayers();
 
+    const start =
+      route?.start_latitude !== null &&
+      route?.start_latitude !== undefined &&
+      route?.start_longitude !== null &&
+      route?.start_longitude !== undefined
+        ? { latitude: route.start_latitude, longitude: route.start_longitude }
+        : null;
+
+    if (start) {
+      L.marker([start.latitude, start.longitude], { icon: startIcon() })
+        .bindPopup(`<strong>Início</strong><br/>${route?.start_address ?? ""}`)
+        .addTo(layer);
+    }
+
     // Só entra no mapa quem já tem coordenada confiável.
     const deliveries = sortDeliveries(route?.deliveries ?? []).filter(isReady);
     if (deliveries.length === 0) {
+      if (start) {
+        map.setView([start.latitude, start.longitude], 15);
+        return;
+      }
       map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
       return;
     }
@@ -80,10 +109,16 @@ export default function RouteMap({ route }: { route: Route | null }) {
     const points: [number, number][] =
       osrmGeometry?.coordinates && osrmGeometry.coordinates.length > 0
         ? osrmGeometry.coordinates.map(([lon, lat]) => [lat, lon])
-        : located.map((delivery) => [
-            delivery.point.latitude,
-            delivery.point.longitude,
-          ]);
+        : [
+            ...(start ? [[start.latitude, start.longitude] as [number, number]] : []),
+            ...located.map(
+              (delivery) =>
+                [delivery.point.latitude, delivery.point.longitude] as [
+                  number,
+                  number,
+                ],
+            ),
+          ];
 
     if (points.length > 1) {
       L.polyline(points, {
@@ -94,12 +129,13 @@ export default function RouteMap({ route }: { route: Route | null }) {
       }).addTo(layer);
     }
 
-    const bounds = L.latLngBounds(
-      located.map((delivery) => [
-        delivery.point.latitude,
-        delivery.point.longitude,
-      ]),
-    );
+    const bounds = L.latLngBounds([
+      ...(start ? [[start.latitude, start.longitude] as [number, number]] : []),
+      ...located.map(
+        (delivery) =>
+          [delivery.point.latitude, delivery.point.longitude] as [number, number],
+      ),
+    ]);
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
   }, [route]);
 
