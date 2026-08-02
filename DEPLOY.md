@@ -122,6 +122,28 @@ Swagger: https://delivery-route-optimizer-api.fly.dev/docs
 
 ---
 
+## 3.5. Geocodificação (Google) — antes de esperar que funcione
+
+A busca de endereços só responde com a key configurada. No dashboard do Google
+Cloud: criar projeto → ativar **Geocoding API** → criar credencial → restringir
+a key **por API** (só Geocoding) e definir um **alerta de orçamento**. Depois:
+
+```bash
+fly secrets set GOOGLE_MAPS_API_KEY="..." -a delivery-route-optimizer-api
+```
+
+Sem a key o app sobe normalmente e responde "Busca de endereços não
+configurada" — todos os pins podem ser marcados à mão no mapa.
+
+A migração de colunas roda sozinha a cada deploy: o `fly.toml` tem
+`release_command = "python -m migrations.001_address_fields"`, executado numa
+máquina temporária com a imagem nova **antes** de a versão entrar no ar. Ela é
+idempotente. Para rodar à mão:
+
+```bash
+fly ssh console -a delivery-route-optimizer-api -C "python -m migrations.001_address_fields"
+```
+
 ## 4. Fechar o CORS depois que souber a URL da Vercel
 
 Por padrão a API aceita qualquer origem (`CORS_ORIGINS=*`). Com o frontend no ar:

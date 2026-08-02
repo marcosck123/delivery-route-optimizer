@@ -6,6 +6,12 @@ kill_timeout = 5
 [build]
   dockerfile = "Dockerfile"
 
+# Roda numa máquina temporária com a imagem nova, ANTES de liberar a versão.
+# Sem isso o código novo subiria consultando colunas que ainda não existem.
+# A migração é idempotente, então repetir a cada deploy é inofensivo.
+[deploy]
+  release_command = "python -m migrations.001_address_fields"
+
 [env]
   PORT = "8080"
   OSRM_BASE_URL = "https://router.project-osrm.org"
