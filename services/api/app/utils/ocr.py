@@ -37,12 +37,20 @@ logger = logging.getLogger(__name__)
 
 OCR_LANGUAGE = "por"
 
-# Order id: 15 digits starting with 888. Tolerant on both counts, because the
-# OCR sometimes eats or invents one digit.
+# Order id: 15 digits starting with 888. Tolerant on the count, because the
+# OCR sometimes eats or invents a digit.
 ORDER_ID_PATTERN = re.compile(r"\b(\d{14,16})\b")
 
-# Closes the address inside a block.
+# The watermark also drops punctuation into the id ("88803084:672038"), and the
+# id is the only marker separating one delivery from the next — so a line that
+# is *almost* an id still counts. Up to this many stray characters are ignored.
+MAX_ORDER_ID_NOISE = 3
+
+# Closes the address inside a block. The date is often garbled too
+# ("202: -08-01 182.:00"), so a time-looking line closes it just as well.
 DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+LOOSE_DATE_PATTERN = re.compile(r"\d{3,4}\D{0,3}-\D{0,2}\d{2}\D{0,2}-\D{0,2}\d{2}")
+TIME_PATTERN = re.compile(r"\d{1,2}\s*[:.]\s*\d{2}\s*[:.]\s*\d{2}")
 
 # Vilhena CEPs come out unformatted: 76985662 -> 76985-662
 CEP_PATTERN = re.compile(r"\b(\d{5})-?(\d{3})\b")
@@ -125,9 +133,39 @@ def _normalize_line(line: str) -> str:
     return re.sub(r"\s+", " ", line).strip()
 
 
-def is_order_id(line: str) -> bool:
+def looks_like_timestamp(line: str) -> bool:
+    """Date and/or time line — where the address ends inside a card."""
     stripped = line.strip()
-    return bool(ORDER_ID_PATTERN.fullmatch(stripped))
+    return bool(
+        DATE_PATTERN.search(stripped)
+        or TIME_PATTERN.search(stripped)
+        or LOOSE_DATE_PATTERN.search(stripped)
+    )
+
+
+def read_order_id(line: str) -> Optional[str]:
+    """Return the order id in this line, tolerating OCR dirt inside it.
+
+    A timestamp also collapses to 14 digits ("2026-08-01 18:24:00"), so it is
+    ruled out first — otherwise every card would be split twice.
+    """
+    stripped = line.strip()
+    if not stripped or looks_like_timestamp(stripped):
+        return None
+
+    match = ORDER_ID_PATTERN.fullmatch(stripped)
+    if match:
+        return match.group(1)
+
+    digits = re.sub(r"\D", "", stripped)
+    noise = len(stripped) - len(digits)
+    if 14 <= len(digits) <= 16 and noise <= MAX_ORDER_ID_NOISE:
+        return digits
+    return None
+
+
+def is_order_id(line: str) -> bool:
+    return read_order_id(line) is not None
 
 
 def is_watermark(line: str) -> bool:
@@ -203,11 +241,11 @@ def _split_into_cards(lines: list[str]) -> list[tuple[str, list[str]]]:
     current: list[str] = []
 
     for line in lines:
-        match = ORDER_ID_PATTERN.fullmatch(line)
-        if match:
+        found = read_order_id(line)
+        if found:
             if order_id is not None:
                 cards.append((order_id, current))
-            order_id = match.group(1)
+            order_id = found
             current = []
             continue
         if order_id is not None:
@@ -220,16 +258,21 @@ def _split_into_cards(lines: list[str]) -> list[tuple[str, list[str]]]:
 
 
 def _cut_at_date(lines: list[str]) -> tuple[list[str], list[str]]:
-    """Split a card at the date: (address side, discarded side)."""
+    """Split a card at the date/time: (address side, discarded side)."""
     for index, line in enumerate(lines):
-        match = DATE_PATTERN.search(line)
-        if match:
-            head = lines[:index]
-            # keep whatever preceded the date on the same line
-            prefix = line[: match.start()].strip()
-            if prefix:
-                head = head + [prefix]
-            return head, lines[index:]
+        if not looks_like_timestamp(line):
+            continue
+        match = (
+            DATE_PATTERN.search(line)
+            or LOOSE_DATE_PATTERN.search(line)
+            or TIME_PATTERN.search(line)
+        )
+        head = lines[:index]
+        # keep whatever preceded the date on the same line
+        prefix = line[: match.start()].strip() if match else ""
+        if prefix:
+            head = head + [prefix]
+        return head, lines[index:]
     return lines, []
 
 

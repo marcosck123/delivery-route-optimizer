@@ -214,6 +214,78 @@ def test_ui_noise_never_eats_a_street_named_navegantes():
     assert blocks[0]["number"] == "100"
 
 
+# ------------------------------------------------- OCR sujo (caso real)
+
+# Saída literal do Tesseract rodando no contêiner de produção sobre um print
+# com marca d'água cruzando o texto. Antes da tolerância nos marcadores, este
+# texto produzia ZERO cards — o mesmo sintoma relatado pela usuária.
+DIRTY_OCR_TEXT = """\
+N
+88803084:672038
+
+N
+
+MARCELA FLOR 'DA FUR...
+
+RUA RES-NENCIAL FLURENCA-UM
+
+hSSIDENCIAL "LORENCA Vih'onia
+
+RO RUx RESIDENCIA! FLORENCA-
+
+UM, 8046, CSA 76985667,
+
+202: -08-01 182.:00
+"""
+
+
+def test_dirty_order_id_still_opens_a_card():
+    """Dois-pontos no meio do número não pode zerar a leitura da tela."""
+    blocks = parse_addresses(DIRTY_OCR_TEXT)
+
+    assert len(blocks) == 1
+    assert blocks[0]["order_id"] == "88803084672038"
+
+
+def test_dirty_read_still_yields_the_useful_fields():
+    """Rua vem suja para ela corrigir, mas número e CEP chegam prontos."""
+    block = parse_addresses(DIRTY_OCR_TEXT)[0]
+
+    assert block["number"] == "8046"
+    assert block["cep"] == "76985-667"
+    assert block["street"]  # algo para ela corrigir, não vazio
+
+
+def test_garbled_timestamp_still_closes_the_address():
+    """"202: -08-01 182.:00" é lixo, mas ainda marca o fim do endereço."""
+    block = parse_addresses(DIRTY_OCR_TEXT)[0]
+    assert "182" not in (block["street"] or "")
+
+
+@pytest.mark.parametrize(
+    "line,expected",
+    [
+        ("88803084:672038", "88803084672038"),
+        ("888030841672038", "888030841672038"),
+        ("888.030.841.672.038", None),  # sujeira demais: não arrisca
+        ("2026-08-01 18:24:00", None),  # timestamp também tem 14 dígitos
+        ("8046", None),
+    ],
+)
+def test_read_order_id_tolerance(line, expected):
+    from app.utils.ocr import read_order_id
+
+    assert read_order_id(line) == expected
+
+
+def test_timestamp_is_never_read_as_an_order_id():
+    """Sem essa guarda, cada card seria partido em dois."""
+    from app.utils.ocr import read_order_id
+
+    assert read_order_id("2026-08-01 18:24:00") is None
+    assert len(parse_addresses(SCREEN_OCR_TEXT)) == 2
+
+
 def test_two_orders_at_the_same_address_stay_separate():
     """Dois pedidos na mesma casa são duas entregas — sem dedup."""
     card = (
